@@ -1,4 +1,5 @@
-# SubPanel
+# <img src="assets/logo.svg" alt="SubPanel" width="36" height="36" align="absmiddle" /> SubPanel
+
 
 轻量订阅聚合分发面板：Cloudflare Workers + D1。多源导入 → 节点池 → 分组 → 订阅链接，适配 Mihomo / sing-box / Surge / URI 等客户端。适合个人 / 家庭 / 小团队使用。
 
