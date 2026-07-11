@@ -20,7 +20,7 @@
 1. 点击上方 **Deploy to Cloudflare**，授权 GitHub 与 Cloudflare，创建应用。
 2. 在 Dashboard 创建并绑定 **D1**：库名 `subpanel` → Worker 绑定 `DB`。
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明）。
-4. 初始化数据库：打开 **存储 → D1 → subpanel → 控制台**，粘贴并执行根目录 **`schema.sql`**（一次即可）。
+4. 初始化数据库：打开 **存储 → D1 → subpanel → 控制台**，打开仓库 **`schema.sql`**，**全选复制**后粘贴执行（文件已无 `--` 注释，避免粘贴丢换行时整段被注释掉）。成功后可 `SELECT name FROM sqlite_master WHERE type='table';` 看到 `users` 等表。
 5. 重新部署一次 Worker。
 6. 打开域名 → **初始化管理员** → **设置** 填 SMTP（可选）→ 导入节点 → 分组 → 建订阅。
 
