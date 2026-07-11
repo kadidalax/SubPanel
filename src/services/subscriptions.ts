@@ -7,6 +7,7 @@ import { detectClient } from "./client_detect.ts";
 import { normalizeDeliveryFormat, renderProfile } from "../renderers/index.ts";
 import { readVars } from "../env.ts";
 import { getSettingNumber, getSettingString } from "./settings.ts";
+import { decryptSecret, encryptSecret } from "./credentials.ts";
 
 export type UsageMode = "none" | "manual" | "upstream_exclusive";
 export type SubFormat = OutputFormat | "uri-base64" | "auto";
@@ -54,13 +55,14 @@ export async function createSubscription(
   const token = randomToken(32);
   const tokenHash = await sha256Text(token);
   const tokenPrefix = token.slice(0, 8);
+  const encryptedToken = await encryptSecret(env, token);
   const now = nowMs();
   const res = await env.DB.prepare(
     `INSERT INTO subscriptions
-      (user_id, group_id, name, token_hash, token_prefix, enabled, expire_at, device_limit,
+      (user_id, group_id, name, token_hash, token_prefix, encrypted_token, enabled, expire_at, device_limit,
        default_format, access_policy, usage_mode, traffic_limit_bytes, manual_used_bytes,
        exclusive_source_id, revision, created_at, updated_at, disabled_reason)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'allow', ?, ?, 0, ?, 0, ?, ?, NULL)`,
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'allow', ?, ?, 0, ?, 0, ?, ?, NULL)`,
   )
     .bind(
       input.userId,
@@ -68,6 +70,7 @@ export async function createSubscription(
       input.name,
       tokenHash,
       tokenPrefix,
+      encryptedToken,
       input.expireAt ?? null,
       input.deviceLimit ?? null,
       input.defaultFormat ?? "auto",
@@ -137,14 +140,33 @@ export async function rotateSubscriptionToken(
   const token = randomToken(32);
   const tokenHash = await sha256Text(token);
   const tokenPrefix = token.slice(0, 8);
+  const encryptedToken = await encryptSecret(env, token);
   const now = nowMs();
   await env.DB.prepare(
-    "UPDATE subscriptions SET token_hash = ?, token_prefix = ?, revision = revision + 1, updated_at = ? WHERE id = ?",
+    "UPDATE subscriptions SET token_hash = ?, token_prefix = ?, encrypted_token = ?, revision = revision + 1, updated_at = ? WHERE id = ?",
   )
-    .bind(tokenHash, tokenPrefix, now, id)
+    .bind(tokenHash, tokenPrefix, encryptedToken, now, id)
     .run();
   await env.DB.prepare("DELETE FROM subscription_devices WHERE subscription_id = ?").bind(id).run();
   return { token, tokenPrefix };
+}
+
+/** Reveal current subscription token without rotating (null if never stored). */
+export async function revealSubscriptionToken(
+  env: Env,
+  id: number,
+  ownerUserId?: number,
+): Promise<{ token: string; tokenPrefix: string } | null> {
+  const row = await env.DB
+    .prepare("SELECT id, user_id, token_prefix, encrypted_token FROM subscriptions WHERE id = ? LIMIT 1")
+    .bind(id)
+    .first<{ id: number; user_id: number; token_prefix: string; encrypted_token: string | null }>();
+  if (!row) throw new Error("subscription not found");
+  if (ownerUserId != null && row.user_id !== ownerUserId) throw new Error("forbidden");
+  if (!row.encrypted_token) return null;
+  const token = await decryptSecret(env, row.encrypted_token);
+  if (!token) return null;
+  return { token, tokenPrefix: row.token_prefix };
 }
 
 export async function listSubscriptionDevices(env: Env, subscriptionId: number) {

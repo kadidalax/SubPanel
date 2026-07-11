@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "../crypto/password.ts";
 import { assertPassword } from "../util/password_policy.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
-import { getSubscriptionRow, rotateSubscriptionToken } from "../services/subscriptions.ts";
+import { getSubscriptionRow, revealSubscriptionToken, rotateSubscriptionToken } from "../services/subscriptions.ts";
 import { buildSubscriptionHealth } from "../services/health.ts";
 
 type AppEnv = { Bindings: Env };
@@ -74,6 +74,21 @@ userRoutes.get("/subscriptions", async (c) => {
   return jsonOk({ subscriptions });
 });
 
+userRoutes.get("/subscriptions/:id/token", async (c) => {
+  const gate = await requireLogin(c);
+  if ("error" in gate) return gate.error;
+  try {
+    const revealed = await revealSubscriptionToken(c.env, Number(c.req.param("id")), gate.auth.user.id);
+    if (!revealed) {
+      return jsonError(404, "token_unavailable", "legacy subscription has no stored token; rotate once to enable re-copy");
+    }
+    return jsonOk({ token: revealed.token, tokenPrefix: revealed.tokenPrefix });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "failed";
+    return jsonError(message === "forbidden" ? 403 : 400, "subscription_error", message);
+  }
+});
+
 userRoutes.post("/subscriptions/:id/rotate", async (c) => {
   const gate = await requireLogin(c);
   if ("error" in gate) return gate.error;
@@ -89,7 +104,7 @@ userRoutes.post("/subscriptions/:id/rotate", async (c) => {
       requestId: getRequestId(c.req.raw),
       now: nowMs(),
     });
-    return jsonOk({ token: rotated.token, tokenPrefix: rotated.tokenPrefix, warning: "token shown once" });
+    return jsonOk({ token: rotated.token, tokenPrefix: rotated.tokenPrefix, warning: "old link invalidated" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "failed";
     return jsonError(message === "forbidden" ? 403 : 400, "subscription_error", message);

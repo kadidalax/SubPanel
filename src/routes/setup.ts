@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { applySchema, getSchemaStatus } from "../db/schema.ts";
+import { applySchema, ensureSchemaPatches, getSchemaStatus } from "../db/schema.ts";
 import { jsonError, jsonOk } from "../util/json.ts";
 import { sameOrigin } from "../util/request.ts";
 
@@ -11,6 +11,7 @@ export const setupRoutes = new Hono<AppEnv>();
 setupRoutes.get("/status", async (c) => {
   try {
     await c.env.DB.prepare("SELECT 1 AS ok").first();
+    await ensureSchemaPatches(c.env.DB);
     const status = await getSchemaStatus(c.env.DB);
     return jsonOk({
       db: true,
@@ -35,6 +36,7 @@ setupRoutes.post("/init-db", async (c) => {
     return jsonError(503, "not_ready", err instanceof Error ? err.message : "database not bound");
   }
 
+  await ensureSchemaPatches(c.env.DB);
   const before = await getSchemaStatus(c.env.DB);
   if (before.ready) {
     return jsonOk({ ready: true, applied: false, missing: [], tableCount: before.existing.length });

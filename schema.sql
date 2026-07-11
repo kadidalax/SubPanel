@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL,
   token_prefix TEXT NOT NULL,
+  encrypted_token TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   expire_at INTEGER,
   device_limit INTEGER,

@@ -26,7 +26,16 @@ export function SubscriptionDetailPage() {
     setManualUsed(bytesToGbInput(s.manualUsedBytes || 0) || "0");
     setTrafficLimit(bytesToGbInput(s.trafficLimitBytes));
     setExpireDays("");
-    setToken(loadSubToken(subId));
+    const cached = loadSubToken(subId);
+    if (cached) setToken(cached);
+    else {
+      api.get<any>(`/api/admin/subscriptions/${subId}/token`).then((res) => {
+        if (res?.token) {
+          saveSubToken(subId, res.token);
+          setToken(res.token);
+        }
+      }).catch(() => null);
+    }
   }
 
   useEffect(() => {
@@ -39,6 +48,30 @@ export function SubscriptionDetailPage() {
     return CLIENT_LINKS.map((c) => ({ ...c, url: buildSubUrl(token, c.format) }));
   }, [token]);
 
+  async function copyCurrent() {
+    setError("");
+    try {
+      let tkn = token || loadSubToken(subId);
+      if (!tkn) {
+        const res = await api.get<any>(`/api/admin/subscriptions/${subId}/token`);
+        tkn = res?.token || null;
+        if (tkn) {
+          saveSubToken(subId, tkn);
+          setToken(tkn);
+        }
+      }
+      if (!tkn) {
+        setError("无已存链接（旧数据需轮换一次）");
+        return;
+      }
+      const url = buildSubUrl(tkn, "auto");
+      await copyText(url);
+      setMsg("已复制通用订阅链接（未改动 token）");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "复制失败");
+    }
+  }
+
   async function rotateAndCopy() {
     setError("");
     setMsg("");
@@ -48,7 +81,7 @@ export function SubscriptionDetailPage() {
       setToken(res.token);
       const url = buildSubUrl(res.token, "auto");
       await copyText(url);
-      setMsg("已轮换并复制通用订阅链接（token 仅此浏览器会话可再复制）");
+      setMsg("已轮换：旧链接作废，新链接已复制");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "轮换失败");
@@ -136,6 +169,7 @@ export function SubscriptionDetailPage() {
             {s.username} · 分组 {s.groupName} · 前缀 <span className="mono">{s.tokenPrefix}</span>
           </div>
           <div className="page-actions">
+            <button className="btn secondary" onClick={copyCurrent}>复制链接</button>
             <button className="btn" onClick={rotateAndCopy}>轮换并复制</button>
             <button className="btn secondary" onClick={toggleEnabled}>{s.enabled ? "停用" : "启用"}</button>
             <button className="btn secondary" onClick={resetDevices}>重置拉取设备</button>

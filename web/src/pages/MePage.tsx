@@ -49,8 +49,20 @@ export function MePage() {
     setRows(list);
     const map: Record<number, string> = {};
     for (const r of list) {
-      const t = loadSubToken(r.id);
-      if (t) map[r.id] = t;
+      const cached = loadSubToken(r.id);
+      if (cached) {
+        map[r.id] = cached;
+        continue;
+      }
+      try {
+        const tr = await api.get<any>(`/api/user/subscriptions/${r.id}/token`);
+        if (tr?.token) {
+          saveSubToken(r.id, tr.token);
+          map[r.id] = tr.token;
+        }
+      } catch {
+        // legacy without encrypted token
+      }
     }
     setTokenMap(map);
     if (list.length && activeSubId == null) setActiveSubId(list[0].id);
@@ -113,7 +125,7 @@ export function MePage() {
   async function copyFormat(id: number, format: any, title: string) {
     const token = tokenMap[id];
     if (!token) {
-      setError("本会话无明文 token，请先轮换一次");
+      setError("无已存链接（旧数据需轮换一次后即可长期复用）");
       return;
     }
     await showCopied(buildSubUrl(token, format), title);
@@ -199,12 +211,12 @@ export function MePage() {
                     复制 {c.title}
                   </button>
                 ))}
-                <button className="btn sm" onClick={() => rotate(r.id)}>轮换并复制</button>
+                <button className="btn sm" onClick={() => rotate(r.id)}>作废旧链接并复制</button>
                 <button className="btn secondary sm" onClick={() => goNodes(r.id)}>节点列表</button>
               </div>
 
               {!tokenMap[r.id] ? (
-                <div className="muted">当前会话无完整链接，需先轮换一次才能复制各格式 URL / 弹出二维码。</div>
+                <div className="muted">旧订阅若无已存链接，需轮换一次后即可长期复用，无需反复轮换。</div>
               ) : null}
             </div>
           ))}

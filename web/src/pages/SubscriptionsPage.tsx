@@ -136,6 +136,21 @@ export function SubscriptionsPage() {
     }
   }
 
+  async function ensureToken(id: number): Promise<string | null> {
+    const cached = loadSubToken(id);
+    if (cached) return cached;
+    try {
+      const res = await api.get<any>(`/api/admin/subscriptions/${id}/token`);
+      if (res?.token) {
+        saveSubToken(id, res.token);
+        return res.token as string;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "无法读取订阅链接");
+    }
+    return null;
+  }
+
   async function rotateToken(row: any) {
     setBusy(true);
     setError("");
@@ -145,7 +160,7 @@ export function SubscriptionsPage() {
       setCreatedToken(res.token);
       setCreatedId(row.id);
       await copyText(buildSubUrl(res.token, "auto")).catch(() => null);
-      setMsg(`订阅 #${row.id} 已轮换，链接已复制（token 仅显示一次）`);
+      setMsg(`订阅 #${row.id} 已轮换：旧链接作废，新链接已复制`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "轮换失败");
@@ -157,14 +172,16 @@ export function SubscriptionsPage() {
 
   async function copyLink(row: any) {
     setError("");
-    const token = loadSubToken(row.id);
+    const token = await ensureToken(row.id);
     if (!token) {
-      setError(`订阅 #${row.id} 本会话无 token，请先「轮换」`);
+      setError(`订阅 #${row.id} 无已存链接（旧数据需轮换一次后即可长期复用）`);
       return;
     }
     try {
       await copyText(buildSubUrl(token, "auto"));
-      setMsg(`已复制订阅 #${row.id} 链接`);
+      setCreatedToken(token);
+      setCreatedId(row.id);
+      setMsg(`已复制订阅 #${row.id} 链接（未改动 token）`);
     } catch {
       setError("复制失败");
     }
@@ -356,7 +373,7 @@ export function SubscriptionsPage() {
       <Modal
         open={openCreate}
         title={editId ? `编辑订阅 #${editId}` : "创建订阅"}
-        description="token 仅显示一次。拉取设备上限按订阅拉取指纹计算。"
+        description="创建后可重复复制链接；轮换仅在需要作废旧链接时使用。拉取设备上限按订阅拉取指纹计算。"
         onClose={() => { setOpenCreate(false); setEditId(null); }}
         wide
         footer={

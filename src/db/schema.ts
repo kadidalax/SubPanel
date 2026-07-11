@@ -19,11 +19,29 @@ export async function getSchemaStatus(db: D1Database): Promise<SchemaStatus> {
   return { ready: missing.length === 0, missing: [...missing], existing };
 }
 
-/** Safe: only CREATE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS. Never drops data. */
+async function ensureSubscriptionTokenColumn(db: D1Database): Promise<void> {
+  try {
+    const cols = await db.prepare("PRAGMA table_info(subscriptions)").all<{ name: string }>();
+    const names = new Set((cols.results ?? []).map((c) => c.name));
+    if (!names.has("encrypted_token")) {
+      await db.exec("ALTER TABLE subscriptions ADD COLUMN encrypted_token TEXT;");
+    }
+  } catch {
+    // table may not exist yet
+  }
+}
+
+/** Safe: only CREATE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS / additive columns. Never drops data. */
 export async function applySchema(db: D1Database): Promise<SchemaStatus> {
   const before = await getSchemaStatus(db);
-  if (before.ready) return before;
-  // D1 exec runs multi-statement SQL (semicolon-separated).
-  await db.exec(SCHEMA_SQL);
+  if (!before.ready) {
+    await db.exec(SCHEMA_SQL);
+  }
+  await ensureSubscriptionTokenColumn(db);
   return getSchemaStatus(db);
+}
+
+/** Best-effort additive patches for already-ready DBs. */
+export async function ensureSchemaPatches(db: D1Database): Promise<void> {
+  await ensureSubscriptionTokenColumn(db);
 }

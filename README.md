@@ -1,12 +1,12 @@
 # <img src="assets/logo.svg" alt="SubPanel" width="36" height="36" align="absmiddle" /> SubPanel
 
-轻量订阅聚合分发面板：Cloudflare Workers + D1。多源导入 → 节点池 → 分组 → 订阅链接，适配 Mihomo / sing-box / Surge / URI 等客户端。适合个人 / 家庭 / 小团队。
+轻量订阅聚合分发面板：Cloudflare Workers + D1。多源导入 → 节点池 → 分组 → 订阅链接，适配 Mihomo / sing-box / Surge / V2rayN 等客户端。适合个人 / 家庭 / 小团队。
 
 ## 特性
 
 - 手工节点、远程订阅、透传源（URI / Base64 / Mihomo / sing-box 等）
 
-- 分组下发独立订阅（支持空分组），到期 / 订阅拉取设备数 / 流量额度
+- 分组下发独立订阅，到期 / 订阅拉取设备数 / 流量额度(不一定准)
 
 - 管理后台 + 次级用户自助；访问与审计日志
 

@@ -34,6 +34,7 @@ import {
   deleteSubscriptionDevice,
   resetSubscriptionDevices,
   rotateSubscriptionToken,
+  revealSubscriptionToken,
   setGroupNodes,
   updateSubscription,
   getSubscriptionRow,
@@ -505,7 +506,7 @@ adminRoutes.post("/subscriptions", async (c) => {
       id: created.id,
       token: created.token,
       tokenPrefix: created.tokenPrefix,
-      warning: "token shown once",
+      warning: "token stored encrypted; can re-copy without rotate",
     });
   } catch (err) {
     return jsonError(400, "subscription_error", err instanceof Error ? err.message : "failed");
@@ -589,6 +590,20 @@ adminRoutes.put("/subscriptions/:id", async (c) => {
   }
 });
 
+adminRoutes.get("/subscriptions/:id/token", async (c) => {
+  const gate = await requireStaff(c);
+  if ("error" in gate) return gate.error;
+  try {
+    const revealed = await revealSubscriptionToken(c.env, Number(c.req.param("id")));
+    if (!revealed) {
+      return jsonError(404, "token_unavailable", "legacy subscription has no stored token; rotate once to enable re-copy");
+    }
+    return jsonOk({ token: revealed.token, tokenPrefix: revealed.tokenPrefix });
+  } catch (err) {
+    return jsonError(400, "subscription_error", err instanceof Error ? err.message : "failed");
+  }
+});
+
 adminRoutes.post("/subscriptions/:id/rotate", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
@@ -601,7 +616,7 @@ adminRoutes.post("/subscriptions/:id/rotate", async (c) => {
       targetId: c.req.param("id"),
       after: { tokenPrefix: rotated.tokenPrefix },
     });
-    return jsonOk({ token: rotated.token, tokenPrefix: rotated.tokenPrefix, warning: "token shown once" });
+    return jsonOk({ token: rotated.token, tokenPrefix: rotated.tokenPrefix, warning: "token stored encrypted; can re-copy without rotate" });
   } catch (err) {
     return jsonError(400, "subscription_error", err instanceof Error ? err.message : "failed");
   }
