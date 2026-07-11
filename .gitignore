@@ -16,3 +16,8 @@ tail-*.jsonl
 _served.js
 *.sqlite
 *.sqlite-*
+tests/
+scripts/
+tsconfig.test.json
+docs/
+Passwall-Sub-Panel-main/

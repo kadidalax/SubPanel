@@ -9,9 +9,7 @@
     "build:web": "npm --prefix web run build",
     "deploy": "npm run build:web && wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
     "db:migrate:local": "wrangler d1 migrations apply subpanel --local",
-    "admin:init": "node --experimental-strip-types scripts/init-admin.ts",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
