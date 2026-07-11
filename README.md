@@ -5,7 +5,7 @@
 ## 特性
 
 - 手工节点、远程订阅、透传源（URI / Base64 / Mihomo / sing-box 等）
-- 分组下发独立订阅，到期 / 设备数 / 流量额度
+- 分组下发独立订阅（支持空分组），到期 / 设备数 / 流量额度
 - 管理后台 + 次级用户自助；访问与审计日志
 - 第三方 SMTP 到期 / 流量提醒，自动停用
 - 亮暗主题
@@ -19,7 +19,7 @@
 1. 点击上方 **Deploy to Cloudflare**，授权 GitHub 与 Cloudflare，创建应用。
 2. 在 Dashboard 创建并绑定 **D1**：库名 `subpanel` → Worker 绑定 `DB`。
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明）。
-4. 初始化数据库：**存储 → D1 → subpanel → 控制台**，按序执行 `migrations/` 下 SQL（`0001` → `0002` → `0003`…）。
+4. 初始化数据库：打开 **存储 → D1 → subpanel → 控制台**，粘贴并执行根目录 **`schema.sql`**（一次即可）。
 5. 重新部署一次 Worker。
 6. 打开域名 → **初始化管理员** → **设置** 填 SMTP（可选）→ 导入节点 → 分组 → 建订阅。
 
@@ -28,7 +28,7 @@
 ## 本地开发
 
 ```bash
-npm install && npm --prefix web install
+npm install
 cp .dev.vars.example .dev.vars
 npm run db:migrate:local
 npm run build:web
