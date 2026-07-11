@@ -16,6 +16,7 @@ export function NodesPage() {
   const [onlyActive, setOnlyActive] = useState(true);
   const [protocol, setProtocol] = useState("all");
   const [groupId, setGroupId] = useState("all");
+  const [sourceId, setSourceId] = useState("all");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
@@ -42,10 +43,23 @@ export function NodesPage() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [nodes]);
 
+  const sources = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const n of nodes) {
+      const id = Number(n.source_id);
+      if (!Number.isFinite(id)) continue;
+      if (!map.has(id)) map.set(id, String(n.source_name || ("#" + id)));
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.id - b.id);
+  }, [nodes]);
+
   const filtered = useMemo(() => {
     return nodes.filter((n) => {
       if (onlyActive && (n.stale || !n.enabled)) return false;
       if (protocol !== "all" && String(n.protocol || "") !== protocol) return false;
+      if (sourceId !== "all" && Number(n.source_id) !== Number(sourceId)) return false;
       if (groupId !== "all") {
         const ids: number[] = Array.isArray(n.groupIds)
           ? n.groupIds.map(Number)
@@ -63,7 +77,7 @@ export function NodesPage() {
       const hay = (n.name + " " + n.protocol + " " + n.source_name + " " + groupNames + " " + n.id).toLowerCase();
       return hay.includes(q.toLowerCase());
     });
-  }, [nodes, q, onlyActive, protocol, groupId]);
+  }, [nodes, q, onlyActive, protocol, groupId, sourceId]);
 
   const ids = filtered.map((n) => n.id as number);
 
@@ -129,6 +143,18 @@ export function NodesPage() {
               <option value="all">全部类型</option>
               {protocols.map((p) => (
                 <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <select
+              className="input"
+              style={{ width: 160 }}
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              title="数据来源"
+            >
+              <option value="all">全部来源</option>
+              {sources.map((s) => (
+                <option key={s.id} value={String(s.id)}>{s.name}</option>
               ))}
             </select>
             <select
