@@ -20,7 +20,7 @@ export function GroupsPage() {
   const [protocolFilter, setProtocolFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
-  const [pickMode, setPickMode] = useState<"node" | "group">("node");
+  const [pickMode, setPickMode] = useState<"node" | "source">("node");
   const sel = useSelection<number>();
   const nodeSel = useSelection<number>();
 
@@ -89,27 +89,21 @@ export function GroupsPage() {
   const selectScopeIds = hasActiveFilter ? filteredNodeIds : allNodeIds;
   const selectScopeAllSelected = selectScopeIds.length > 0 && selectScopeIds.every((id) => nodeSel.has(id));
 
-  function nodeGroupIds(n: any): number[] {
-    if (Array.isArray(n.groupIds)) return n.groupIds.map(Number);
-    if (Array.isArray(n.groups)) return n.groups.map((x: any) => Number(x.id));
-    return [];
-  }
-
-  function nodesOfGroup(gid: number): number[] {
+  function nodesOfSource(sid: number): number[] {
     return nodes
-      .filter((n) => nodeGroupIds(n).includes(gid))
+      .filter((n) => Number(n.source_id) === sid)
       .map((n) => n.id as number);
   }
 
-  const groupPickRows = useMemo(() => {
+  const sourcePickRows = useMemo(() => {
     const k = q.trim().toLowerCase();
-    const rows = groups
-      .map((g) => {
-        const ids = nodesOfGroup(Number(g.id));
+    const rows = sources
+      .map((s) => {
+        const ids = nodesOfSource(Number(s.id));
         const selectedCount = ids.filter((id) => nodeSel.has(id)).length;
         return {
-          id: Number(g.id),
-          name: String(g.name || ""),
+          id: Number(s.id),
+          name: String(s.name || ""),
           nodeIds: ids,
           total: ids.length,
           selectedCount,
@@ -120,7 +114,7 @@ export function GroupsPage() {
       .filter((r) => r.total > 0);
     if (!k) return rows;
     return rows.filter((r) => (r.name + " " + r.id).toLowerCase().includes(k));
-  }, [groups, nodes, q, nodeSel.selected]);
+  }, [sources, nodes, q, nodeSel.selected]);
 
   function toggleSelectScope() {
     if (!selectScopeIds.length) return;
@@ -140,8 +134,8 @@ export function GroupsPage() {
     }
   }
 
-  function toggleGroupPick(gid: number) {
-    const ids = nodesOfGroup(gid);
+  function toggleSourcePick(sid: number) {
+    const ids = nodesOfSource(sid);
     if (!ids.length) return;
     const allOn = ids.every((id) => nodeSel.has(id));
     if (allOn) {
@@ -348,7 +342,7 @@ export function GroupsPage() {
       <Modal
         open={openEditor}
         title={editId == null ? "新建分组" : `编辑分组 #${editId}`}
-        description="可不选节点直接创建空分组。支持按节点/按分组选择；有筛选时全选仅作用于当前筛选结果。勾选顺序=排序。"
+        description="可不选节点直接创建空分组。支持按节点/按来源选择；有筛选时全选仅作用于当前筛选结果。勾选顺序=排序。"
         onClose={() => setOpenEditor(false)}
         wide
         footer={
@@ -366,7 +360,7 @@ export function GroupsPage() {
               <div className="list-toolbar-left">
                 <div className="seg-toggle" role="tablist" aria-label="选择方式">
                   <button type="button" className={pickMode === "node" ? "seg active" : "seg"} onClick={() => setPickMode("node")}>按节点</button>
-                  <button type="button" className={pickMode === "group" ? "seg active" : "seg"} onClick={() => setPickMode("group")}>按分组</button>
+                  <button type="button" className={pickMode === "source" ? "seg active" : "seg"} onClick={() => setPickMode("source")}>按来源</button>
                 </div>
                 <input className="input filter-search" placeholder="搜索" value={q} onChange={(e) => setQ(e.target.value)} />
                 {pickMode === "node" ? (
@@ -393,7 +387,7 @@ export function GroupsPage() {
                     <span className="muted">可见 {filteredNodes.length}</span>
                   </>
                 ) : (
-                  <span className="muted">分组 {groupPickRows.length}</span>
+                  <span className="muted">来源 {sourcePickRows.length}</span>
                 )}
               </div>
               <div className="list-toolbar-right">
@@ -429,7 +423,7 @@ export function GroupsPage() {
                 </>
               ) : (
                 <>
-                  {groupPickRows.map((g) => (
+                  {sourcePickRows.map((g) => (
                     <label key={g.id} className="check-item">
                       <input
                         type="checkbox"
@@ -437,7 +431,7 @@ export function GroupsPage() {
                         ref={(el) => {
                           if (el) el.indeterminate = g.partial;
                         }}
-                        onChange={() => toggleGroupPick(g.id)}
+                        onChange={() => toggleSourcePick(g.id)}
                       />
                       <span className="emoji-safe">
                         {g.name}{" "}
@@ -445,7 +439,7 @@ export function GroupsPage() {
                       </span>
                     </label>
                   ))}
-                  {!groupPickRows.length ? <div className="muted">暂无可用分组节点</div> : null}
+                  {!sourcePickRows.length ? <div className="muted">暂无可用来源节点</div> : null}
                 </>
               )}
             </div>
