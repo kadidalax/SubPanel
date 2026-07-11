@@ -1,0 +1,350 @@
+import YAML from "yaml";
+import { capabilitiesFor } from "./capabilities.ts";
+import { maybeDecodeBase64List, parseUriList, parseGenericUri } from "./uri.ts";
+import type { NormalizedNode, ParseResult, ParseWarning, Protocol } from "./types.ts";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): NormalizedNode | null {
+  const type = String(proxy.type || "").toLowerCase();
+  const name = String(proxy.name || type);
+  const server = String(proxy.server || ((proxy.peers as any)?.[0]?.server) || "");
+  const port = Number(proxy.port || ((proxy.peers as any)?.[0]?.port) || 0);
+  if ((!server || !port) && String(proxy.type || "").toLowerCase() !== "wireguard") return null;
+
+  const map: Record<string, Protocol> = {
+    vless: "vless",
+    vmess: "vmess",
+    trojan: "trojan",
+    ss: "ss",
+    shadowsocks: "ss",
+    socks5: "socks",
+    http: "http",
+    hysteria2: "hysteria2",
+    hy2: "hysteria2",
+    hysteria: "hysteria",
+    tuic: "tuic",
+    wireguard: "wireguard",
+  };
+  const protocol = map[type];
+  if (!protocol) return null;
+
+  const partial = {
+    protocol,
+    name,
+    server,
+    port,
+    raw,
+    auth: {
+      uuid: proxy.uuid,
+      password: proxy.password || proxy.auth || proxy["auth-str"],
+      method: proxy.cipher || proxy.method,
+      username: proxy.username,
+      privateKey: proxy["private-key"] || proxy.private_key || proxy.privateKey,
+      publicKey: proxy["public-key"] || proxy.public_key || proxy.publicKey || ((proxy.peers as any)?.[0]?.["public-key"]),
+      preSharedKey: proxy["pre-shared-key"] || proxy.preshared_key || ((proxy.peers as any)?.[0]?.["pre-shared-key"]),
+    },
+    tls: proxy.tls || proxy.sni || proxy["skip-cert-verify"] || proxy["reality-opts"] || proxy["ca-str"] || proxy.certificate
+      ? {
+          enabled: Boolean(proxy.tls || proxy["reality-opts"] || proxy["ca-str"] || protocol === "trojan" || protocol === "hysteria2" || protocol === "hysteria" || protocol === "tuic"),
+          serverName: proxy.sni || proxy.servername || proxy.peer,
+          allowInsecure: proxy["skip-cert-verify"],
+          fingerprint: proxy["client-fingerprint"],
+          reality: proxy["reality-opts"],
+          certificate: proxy["ca-str"] || proxy.certificate || proxy.cert,
+        }
+      : undefined,
+    transport: {
+      type: proxy.network || proxy["network"] || "tcp",
+      path: (proxy["ws-opts"] as any)?.path || (proxy["h2-opts"] as any)?.path,
+      host: (proxy["ws-opts"] as any)?.headers?.Host,
+      serviceName: (proxy["grpc-opts"] as any)?.["grpc-service-name"],
+    },
+    extras: {
+      flow: proxy.flow,
+      udp: proxy.udp,
+      up: proxy.up,
+      down: proxy.down,
+      obfs: proxy.obfs,
+      ports: proxy.ports,
+      ip: proxy.ip,
+      ipv6: proxy.ipv6,
+      mtu: proxy.mtu,
+      reserved: proxy.reserved,
+      allowedIPs: proxy["allowed-ips"] || ((proxy.peers as any)?.[0]?.["allowed-ips"]),
+      localAddress: proxy.ip,
+      auth: proxy.auth || proxy["auth-str"],
+      certificate: proxy["ca-str"] || proxy.certificate || proxy.cert,
+    },
+  } as Omit<NormalizedNode, "capability">;
+  return { ...partial, capability: capabilitiesFor(partial) };
+}
+
+function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): NormalizedNode | null {
+  const type = String(ob.type || "").toLowerCase();
+  const name = String(ob.tag || type);
+  const server = String(ob.server || "");
+  const port = Number(ob.server_port || ob.port || 0);
+  if ((!server || !port) && String(ob.type || "").toLowerCase() !== "wireguard") return null;
+  const map: Record<string, Protocol> = {
+    vless: "vless",
+    vmess: "vmess",
+    trojan: "trojan",
+    shadowsocks: "ss",
+    socks: "socks",
+    http: "http",
+    hysteria2: "hysteria2",
+    hysteria: "hysteria",
+    tuic: "tuic",
+    wireguard: "wireguard",
+  };
+  const protocol = map[type];
+  if (!protocol) return null;
+  const tls = asRecord(ob.tls) || undefined;
+  const transport = asRecord(ob.transport) || undefined;
+  const partial = {
+    protocol,
+    name,
+    server,
+    port,
+    raw,
+    auth: {
+      uuid: ob.uuid,
+      password: ob.password || ob.auth || ob.auth_str,
+      method: ob.method,
+      username: ob.username,
+      privateKey: ob.private_key || ob.privateKey,
+      publicKey: ob.peer_public_key || ob.public_key,
+      preSharedKey: ob.pre_shared_key,
+    },
+    tls: tls
+      ? {
+          enabled: true,
+          serverName: tls.server_name,
+          allowInsecure: tls.insecure,
+          alpn: tls.alpn,
+          reality: tls.reality,
+          utls: tls.utls,
+          certificate: Array.isArray(tls.certificate) ? tls.certificate[0] : tls.certificate,
+        }
+      : undefined,
+    transport: transport
+      ? {
+          type: transport.type,
+          path: transport.path,
+          host: transport.headers && (transport.headers as any).Host,
+          serviceName: transport.service_name,
+        }
+      : undefined,
+    extras: {
+      flow: ob.flow,
+      up: ob.up_mbps || ob.up,
+      down: ob.down_mbps || ob.down,
+      obfs: typeof ob.obfs === "object" ? (ob.obfs as any)?.type || (ob.obfs as any)?.password : ob.obfs,
+      localAddress: ob.local_address,
+      mtu: ob.mtu,
+      reserved: ob.reserved,
+      allowedIPs: Array.isArray(ob.peers) && ob.peers[0] ? (ob.peers[0] as any).allowed_ips : ob.allowed_ips,
+      auth: ob.auth_str || ob.auth,
+    },
+  } as Omit<NormalizedNode, "capability">;
+  return { ...partial, capability: capabilitiesFor(partial) };
+}
+
+function splitMixedBlocks(text: string): string[] {
+  const parts = text
+    .split(/\r?\n[-=*]{5,}\r?\n/)
+    .map((p) => p.trim())
+    .filter((p) => p && !/^[-=*]{5,}$/.test(p) && !/^\*{5,}/.test(p));
+  return parts.length > 1 ? parts : [text.trim()];
+}
+
+function parseBlock(text: string, warnings: ParseWarning[]): { nodes: NormalizedNode[]; detectedFormat: string } {
+  const block = text.trim();
+  if (!block) return { nodes: [], detectedFormat: "empty" };
+
+  if (block.startsWith("{") || block.startsWith("[")) {
+    try {
+      const data = JSON.parse(block) as any;
+      if (Array.isArray(data) && data[0]?.server && data[0]?.method) {
+        const nodes: NormalizedNode[] = [];
+        for (const item of data) {
+          const partial = {
+            protocol: String(item.method || "").startsWith("2022-blake3") ? "ss2022" : "ss",
+            name: String(item.remarks || item.name || "ss"),
+            server: String(item.server || ""),
+            port: Number(item.server_port || item.port || 0),
+            raw: JSON.stringify(item),
+            auth: { method: item.method, password: item.password },
+          } as Omit<NormalizedNode, "capability">;
+          if (!partial.server || !partial.port) continue;
+          nodes.push({ ...partial, capability: capabilitiesFor(partial) });
+        }
+        return { nodes, detectedFormat: "sip008" };
+      }
+      if (data && Array.isArray(data.outbounds)) {
+        const nodes: NormalizedNode[] = [];
+        const outbounds = data.outbounds.filter((ob: any) => ob && typeof ob === "object");
+        const byTag = new Map<string, any>();
+        for (const ob of outbounds) {
+          if (ob.tag) byTag.set(String(ob.tag), ob);
+        }
+        const consumed = new Set<string>();
+        for (const ob of outbounds) {
+          const type = String(ob.type || "");
+          if (["direct", "block", "dns", "selector", "urltest"].includes(type)) continue;
+          if (type === "shadowtls") continue;
+          if (ob.detour && byTag.has(String(ob.detour))) {
+            const hop = byTag.get(String(ob.detour));
+            if (String(hop?.type) === "shadowtls" && type === "shadowsocks") {
+              const partial = {
+                protocol: String(ob.method || "").startsWith("2022-blake3") ? "ss2022" : "ss",
+                name: String(hop.tag || ob.tag || "ShadowTLS"),
+                server: String(hop.server || ""),
+                port: Number(hop.server_port || hop.port || 0),
+                raw: JSON.stringify({ leaf: ob, hop }),
+                auth: { method: ob.method, password: ob.password },
+                tls: hop.tls
+                  ? {
+                      enabled: true,
+                      serverName: hop.tls.server_name,
+                      fingerprint: hop.tls.utls?.fingerprint,
+                      allowInsecure: hop.tls.insecure,
+                    }
+                  : undefined,
+                extras: {
+                  shadowtls: {
+                    version: hop.version ?? 3,
+                    password: hop.password,
+                    server: hop.server,
+                    server_port: hop.server_port,
+                    tls: hop.tls,
+                  },
+                  multiplex: ob.multiplex,
+                  udp_over_tcp: ob.udp_over_tcp,
+                },
+              } as Omit<NormalizedNode, "capability">;
+              if (partial.server && partial.port) {
+                nodes.push({ ...partial, capability: capabilitiesFor(partial) });
+                consumed.add(String(ob.tag || ""));
+                consumed.add(String(hop.tag || ""));
+                continue;
+              }
+            }
+          }
+          if (consumed.has(String(ob.tag || ""))) continue;
+          const node = fromSingboxOutbound(ob, JSON.stringify(ob));
+          if (node) nodes.push(node);
+          else warnings.push({ code: "singbox_skipped", message: "unsupported outbound", raw: type });
+        }
+        for (const ob of outbounds) {
+          if (String(ob.type) === "shadowtls" && !consumed.has(String(ob.tag || ""))) {
+            warnings.push({ code: "singbox_skipped", message: "unpaired shadowtls hop", raw: String(ob.tag || "shadowtls") });
+          }
+        }
+        return { nodes, detectedFormat: "singbox" };
+      }
+    } catch (err) {
+      warnings.push({ code: "json_parse_error", message: err instanceof Error ? err.message : "json parse error" });
+    }
+  }
+
+  if (block.includes("proxies:") || block.includes("proxy-groups:")) {
+    try {
+      const data = YAML.parse(block) as any;
+      const proxies = Array.isArray(data?.proxies) ? data.proxies : [];
+      const nodes: NormalizedNode[] = [];
+      for (const proxy of proxies) {
+        if (!proxy || typeof proxy !== "object") continue;
+        const node = fromMihomoProxy(proxy, YAML.stringify(proxy));
+        if (node) nodes.push(node);
+        else warnings.push({ code: "mihomo_skipped", message: "unsupported proxy", raw: String(proxy.type || "") });
+      }
+      if (nodes.length || proxies.length) return { nodes, detectedFormat: "mihomo" };
+    } catch (err) {
+      warnings.push({ code: "yaml_parse_error", message: err instanceof Error ? err.message : "yaml parse error" });
+    }
+  }
+
+  const uri = parseUriList(block);
+  if (uri.nodes.length) {
+    warnings.push(...uri.warnings);
+    return { nodes: uri.nodes, detectedFormat: "uri-list" };
+  }
+  const one = parseGenericUri(block);
+  if (one) return { nodes: [one], detectedFormat: "uri" };
+  if (/^[a-z0-9+.-]+:\/\//i.test((block.split(/\r?\n/, 1)[0] || "").trim())) {
+    warnings.push({ code: "uri_unparsed", message: "unable to parse uri", raw: block.slice(0, 200) });
+  }
+  return { nodes: [], detectedFormat: "unknown" };
+}
+
+export function parseSubscriptionText(input: string, formatHint?: string | null): ParseResult {
+  let text = input.trim();
+  const warnings: ParseWarning[] = [];
+  if (!text) return { nodes: [], warnings: [{ code: "empty", message: "empty content" }], detectedFormat: "empty" };
+
+  const decoded = maybeDecodeBase64List(text);
+  if (decoded) text = decoded.trim();
+  const hint = (formatHint || "").toLowerCase();
+
+  const blocks = splitMixedBlocks(text);
+  if (blocks.length > 1 && !hint) {
+    const nodes: NormalizedNode[] = [];
+    const formats = new Set<string>();
+    for (const block of blocks) {
+      const parsed = parseBlock(block, warnings);
+      nodes.push(...parsed.nodes);
+      if (parsed.nodes.length) formats.add(parsed.detectedFormat);
+    }
+    if (nodes.length) {
+      return {
+        nodes,
+        warnings,
+        detectedFormat: formats.size === 1 ? [...formats][0] : "mixed",
+      };
+    }
+  }
+
+  if (hint === "singbox" || hint === "sip008" || text.startsWith("{") || text.startsWith("[")) {
+    const one = parseBlock(text, warnings);
+    if (one.nodes.length || one.detectedFormat === "singbox" || one.detectedFormat === "sip008") {
+      return { nodes: one.nodes, warnings, detectedFormat: one.detectedFormat };
+    }
+  }
+
+  if (hint === "mihomo" || hint === "clash" || text.includes("proxies:") || text.includes("proxy-groups:")) {
+    const one = parseBlock(text, warnings);
+    if (one.nodes.length || one.detectedFormat === "mihomo") {
+      return { nodes: one.nodes, warnings, detectedFormat: one.detectedFormat };
+    }
+  }
+
+  const uri = parseUriList(text);
+  if (uri.nodes.length) {
+    return {
+      nodes: uri.nodes,
+      warnings: [...warnings, ...uri.warnings],
+      detectedFormat: decoded ? "base64-uri-list" : "uri-list",
+    };
+  }
+
+  const one = parseGenericUri(text);
+  if (one) return { nodes: [one], warnings, detectedFormat: "uri" };
+
+  if (blocks.length > 1) {
+    const nodes: NormalizedNode[] = [];
+    for (const block of blocks) nodes.push(...parseBlock(block, warnings).nodes);
+    if (nodes.length) return { nodes, warnings, detectedFormat: "mixed" };
+  }
+
+  return {
+    nodes: [],
+    warnings: [...warnings, { code: "unsupported_format", message: "unable to detect subscription format" }],
+    detectedFormat: "unknown",
+  };
+}

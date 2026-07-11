@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "subpanel",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "SITE_NAME": "Sub Panel",
+    "PASSWORD_ITERATIONS": "100000",
+    "SESSION_IDLE_MS": "604800000",
+    "SESSION_ABSOLUTE_MS": "2592000000",
+    "DEVICE_WINDOW_MS": "604800000",
+    "ACCESS_LOG_RETENTION_DAYS": "7"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "subpanel",
+      "database_id": "9a6c4a24-3e44-4c2b-93b3-60f7fd69d899",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/sub/*",
+      "/health/*"
+    ]
+  }
+}

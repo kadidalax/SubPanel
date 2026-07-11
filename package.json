@@ -1,0 +1,26 @@
+{
+  "name": "sub-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "npm run build:web && wrangler deploy --dry-run --outdir=dist",
+    "build:web": "npm --prefix web run build",
+    "deploy": "npm run build:web && wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
+    "db:migrate:local": "wrangler d1 migrations apply subpanel --local",
+    "admin:init": "node --experimental-strip-types scripts/init-admin.ts",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "hono": "^4.9.7",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250705.0",
+    "typescript": "^5.8.3",
+    "wrangler": "4.104.0"
+  }
+}
