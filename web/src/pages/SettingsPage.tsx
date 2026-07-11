@@ -143,7 +143,7 @@ export function SettingsPage() {
       <form className="card settings-card stack" style={{ marginTop: 16 }} onSubmit={save}>
         <div className="section-head">
           <h3 className="section-title">发件配置</h3>
-          <div className="muted">第三方 SMTP；到期 / 流量提醒走此通道。密码留空表示不修改已保存值。</div>
+          <div className="muted">第三方 SMTP；到期 / 流量 / 自动停用提醒。密码 AES 加密存 D1，留空表示不修改。</div>
         </div>
         <div className="settings-flow">
           <div className="field f-md"><label>发件邮箱</label><input className="input" value={mailFrom} onChange={(e) => setMailFrom(e.target.value)} placeholder="noreply@example.com" maxLength={120} /></div>

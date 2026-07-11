@@ -1,10 +1,11 @@
-﻿import type { Env } from "../env.ts";
+import type { Env } from "../env.ts";
 import { decryptText, encryptText } from "../crypto/secretbox.ts";
 import { nowMs } from "../util/time.ts";
 import { parseSubscriptionText } from "../parsers/detect.ts";
 import type { NormalizedNode, OutputFormat } from "../parsers/types.ts";
 import { nodeKey } from "../parsers/node_key.ts";
 import { fetchRemoteSubscription, parseUserinfo } from "./ssrf.ts";
+import { credentialsKey } from "./credentials.ts";
 
 export type SourceDiff = {
   added: number;
@@ -13,30 +14,17 @@ export type SourceDiff = {
   unchanged: number;
 };
 
-async function credentialsKey(env: Env): Promise<string> {
-  const fromEnv = (env.CREDENTIALS_KEY || "").trim();
-  if (fromEnv.length >= 16) return fromEnv;
-  const row = await env.DB.prepare("SELECT value_json FROM settings WHERE key = ? LIMIT 1")
-    .bind("credentials_key")
-    .first<{ value_json: string }>();
-  if (row?.value_json) {
-    try {
-      const v = JSON.parse(row.value_json);
-      if (typeof v === "string" && v.length >= 16) return v;
-      if (String(row.value_json).length >= 16) return String(row.value_json).replace(/^"|"$/g, "");
-    } catch {
-      if (row.value_json.length >= 16) return row.value_json;
-    }
-  }
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const key = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  const now = Date.now();
+async function bumpGroupsForSource(env: Env, sourceId: number, now: number): Promise<void> {
   await env.DB.prepare(
-    "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+    `UPDATE groups SET revision = revision + 1, updated_at = ?
+     WHERE id IN (
+       SELECT DISTINCT gn.group_id FROM group_nodes gn
+       JOIN source_nodes sn ON sn.id = gn.node_id
+       WHERE sn.source_id = ?
+     )`,
   )
-    .bind("credentials_key", JSON.stringify(key), now)
+    .bind(now, sourceId)
     .run();
-  return key;
 }
 
 export async function createManualSource(
@@ -215,6 +203,7 @@ export async function refreshSource(
     )
       .bind(revision, now, now, sourceId)
       .run();
+    await bumpGroupsForSource(env, sourceId, now);
     return { nodeCount: parsed.nodes.length, warnings: parsed.warnings, revision, diff };
   }
 
@@ -253,6 +242,7 @@ export async function refreshSource(
     )
       .bind(revision, now, nextRefresh, now, sourceId)
       .run();
+    await bumpGroupsForSource(env, sourceId, now);
     return { nodeCount: parsed.nodes.length, warnings: parsed.warnings, revision, diff };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

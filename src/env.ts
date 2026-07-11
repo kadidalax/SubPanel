@@ -29,6 +29,6 @@ export function readVars(env: Env): AppVars {
     sessionIdleMs: Number(env.SESSION_IDLE_MS || 7 * 24 * 3600 * 1000),
     sessionAbsoluteMs: Number(env.SESSION_ABSOLUTE_MS || 30 * 24 * 3600 * 1000),
     deviceWindowMs: Number(env.DEVICE_WINDOW_MS || 7 * 24 * 3600 * 1000),
-    accessLogRetentionDays: Number(env.ACCESS_LOG_RETENTION_DAYS || 30),
+    accessLogRetentionDays: Number(env.ACCESS_LOG_RETENTION_DAYS || 7),
   };
 }

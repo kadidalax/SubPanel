@@ -1,4 +1,4 @@
-﻿import type { NormalizedNode } from "../parsers/types.ts";
+import type { NormalizedNode } from "../parsers/types.ts";
 
 function rebuildUri(node: NormalizedNode): string | null {
   const cert = String(node.tls?.certificate || node.extras?.certificate || "");

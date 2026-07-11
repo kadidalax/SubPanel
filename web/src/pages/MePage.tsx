@@ -1,16 +1,47 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { badgeClass, fmtBytes, fmtTime, healthLabel } from "../lib/format";
 import { buildImportLinks, buildSubUrl, CLIENT_LINKS, copyText, loadSubToken, saveSubToken } from "../lib/sub";
-import { Flash } from "../components/ui";
+import { Flash, Modal } from "../components/ui";
+
+type MeNode = {
+  id: number;
+  name: string;
+  protocol: string;
+  server: string;
+  port: number | null;
+  enabled: boolean;
+  stale: boolean;
+};
+
+type MeTab = "subs" | "nodes";
+
+type QrState = {
+  title: string;
+  url: string;
+  qr: string;
+  clash?: string;
+  singbox?: string;
+};
+
+function usageText(usage: any) {
+  if (!usage || usage.mode === "none") return "未统计";
+  const used = fmtBytes(usage.usedBytes);
+  const limit = usage.limitBytes == null ? "不限" : fmtBytes(usage.limitBytes);
+  const pct = usage.percent != null ? ` (${usage.percent}%)` : "";
+  return `${used} / ${limit}${pct}`;
+}
 
 export function MePage() {
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [tokenMap, setTokenMap] = useState<Record<number, string>>({});
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [tab, setTab] = useState<MeTab>("subs");
+  const [activeSubId, setActiveSubId] = useState<number | null>(null);
+  const [nodes, setNodes] = useState<MeNode[]>([]);
+  const [loadingNodes, setLoadingNodes] = useState(false);
+  const [qr, setQr] = useState<QrState | null>(null);
 
   async function load() {
     const res = await api.get<any>("/api/user/subscriptions");
@@ -22,11 +53,48 @@ export function MePage() {
       if (t) map[r.id] = t;
     }
     setTokenMap(map);
+    if (list.length && activeSubId == null) setActiveSubId(list[0].id);
+    if (activeSubId != null && !list.some((r: any) => r.id === activeSubId)) {
+      setActiveSubId(list[0]?.id ?? null);
+    }
   }
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadNodes(id: number) {
+    setLoadingNodes(true);
+    setError("");
+    try {
+      const res = await api.get<any>(`/api/user/subscriptions/${id}/nodes`);
+      setNodes(res.nodes || []);
+    } catch (err) {
+      setNodes([]);
+      setError(err instanceof Error ? err.message : "加载节点失败");
+    } finally {
+      setLoadingNodes(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab !== "nodes" || activeSubId == null) return;
+    loadNodes(activeSubId).catch(() => {});
+  }, [tab, activeSubId]);
+
+  const activeSub = useMemo(() => rows.find((r) => r.id === activeSubId) || null, [rows, activeSubId]);
+
+    async function showCopied(url: string, title: string) {
+    const imp = buildImportLinks(url);
+    setQr({ title, url, qr: imp.qr, clash: imp.clash, singbox: imp.singbox });
+    try {
+      await copyText(url);
+      setMsg(`已复制 ${title}`);
+    } catch {
+      setMsg(`${title} 二维码已打开，复制失败可手动复制链接`);
+    }
+  }
 
   async function rotate(id: number) {
     setError("");
@@ -34,8 +102,8 @@ export function MePage() {
       const res = await api.post<any>(`/api/user/subscriptions/${id}/rotate`);
       saveSubToken(id, res.token);
       setTokenMap((m) => ({ ...m, [id]: res.token }));
-      await copyText(buildSubUrl(res.token, "auto"));
-      setMsg(`订阅 #${id} 已轮换，通用链接已复制`);
+      const url = buildSubUrl(res.token, "auto");
+      await showCopied(url, "通用自动");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "轮换失败");
@@ -48,22 +116,12 @@ export function MePage() {
       setError("本会话无明文 token，请先轮换一次");
       return;
     }
-    await copyText(buildSubUrl(token, format));
-    setMsg(`已复制 ${title}`);
+    await showCopied(buildSubUrl(token, format), title);
   }
 
-  async function changePassword(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    setMsg("");
-    try {
-      await api.put("/api/user/password", { currentPassword, newPassword });
-      setMsg("密码已修改，请重新登录");
-      setCurrentPassword("");
-      setNewPassword("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "改密失败");
-    }
+  function goNodes(id: number) {
+    setActiveSubId(id);
+    setTab("nodes");
   }
 
   return (
@@ -73,64 +131,165 @@ export function MePage() {
           <h2>我的订阅</h2>
         </div>
         <div className="page-header-subrow">
-          <div className="sub">复制客户端链接、查看用量与到期。设备数为订阅拉取指纹，不是在线存活设备。</div>
+          <div className="sub">复制客户端链接后会弹出对应二维码。设备数为订阅拉取指纹，不是在线存活设备。</div>
         </div>
       </div>
-      <Flash error={error} msg={msg} onDismissError={() => setError("")} onDismissMsg={() => setMsg("")} />
 
-      <div className="card-list">
-        {rows.map((r) => (
-          <div className="card stack" key={r.id}>
-            <div className="toolbar" style={{ justifyContent: "space-between" }}>
-              <div>
-                <h3 style={{ margin: 0 }}>{r.name}</h3>
-                <div className="muted mono">prefix {r.tokenPrefix}</div>
-              </div>
-              <span className={badgeClass(r.health?.status || (r.enabled ? "ok" : "blocked"))}>
-                {healthLabel(r.health?.status) || (r.enabled ? "启用" : "停用")}
-              </span>
-            </div>
-            <div className="chip-row">
-              <span className="chip">节点 {r.health?.nodeActive ?? "—"}</span>
-              <span className="chip">订阅设备 {r.health?.devices?.used ?? 0}/{r.health?.devices?.limit ?? "∞"}</span>
-              <span className="chip">{r.health?.usage?.label || r.usageMode} {r.health?.usage?.percent != null ? `${r.health.usage.percent}%` : ""}</span>
-              <span className="chip">到期 {r.health?.daysToExpire != null ? `${r.health.daysToExpire}天` : fmtTime(r.expireAt)}</span>
-            </div>
-            {r.health?.warnings?.length ? <div className="warn-box">{r.health.warnings.join("；")}</div> : null}
-            <div className="toolbar">
-              {CLIENT_LINKS.slice(0, 4).map((c) => (
-                <button key={c.id} className="btn secondary" onClick={() => copyFormat(r.id, c.format, c.title)}>复制 {c.title}</button>
+      <div className="tabs-bar">
+        <div className="tabs">
+          <button type="button" className={tab === "subs" ? "tab active" : "tab"} onClick={() => setTab("subs")}>订阅</button>
+          <button type="button" className={tab === "nodes" ? "tab active" : "tab"} onClick={() => setTab("nodes")}>节点列表</button>
+        </div>
+        {tab === "nodes" && rows.length > 1 ? (
+          <div className="tabs-filters">
+            <select className="input" value={activeSubId ?? ""} onChange={(e) => setActiveSubId(Number(e.target.value))}>
+              {rows.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
               ))}
-              <button className="btn" onClick={() => rotate(r.id)}>轮换并复制</button>
-            </div>
-            {tokenMap[r.id] ? (() => {
-              const autoUrl = buildSubUrl(tokenMap[r.id], "auto");
-              const imp = buildImportLinks(autoUrl);
-              return (
-                <div className="split-2" style={{ alignItems: "center" }}>
-                  <div className="stack-sm">
-                    <div className="muted">一键导入 / 扫码（通用 auto 链接）</div>
-                    <div className="toolbar">
-                      <a className="btn secondary" href={imp.clash}>Clash 导入</a>
-                      <a className="btn secondary" href={imp.singbox}>sing-box 导入</a>
-                      <button type="button" className="btn secondary" onClick={() => copyText(autoUrl).then(() => setMsg("已复制通用链接"))}>复制链接</button>
-                    </div>
-                  </div>
-                  <img src={imp.qr} alt="subscription qr" width={120} height={120} style={{ borderRadius: 12, border: "1px solid var(--line)", background: "#fff" }} />
-                </div>
-              );
-            })() : <div className="muted">当前会话无完整链接，需先轮换一次才能复制各格式 URL / 显示二维码。</div>}
+            </select>
           </div>
-        ))}
-        {!rows.length ? <div className="card empty"><div className="empty-ico" aria-hidden="true" /><h3>暂无订阅</h3><p className="muted">请联系管理员为你创建订阅入口。</p></div> : null}
+        ) : null}
       </div>
 
-      <form className="card stack" style={{ maxWidth: 480 }} onSubmit={changePassword}>
-        <div className="section-head"><h3 className="section-title">修改密码</h3></div>
-        <div className="field"><label>当前密码</label><input className="input" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></div>
-        <div className="field"><label>新密码（≥10）</label><input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></div>
-        <button className="btn">保存密码</button>
-      </form>
+      <Flash error={error} msg={msg} onDismissError={() => setError("")} onDismissMsg={() => setMsg("")} />
+
+      {tab === "subs" ? (
+        <div className="card-list">
+          {rows.map((r) => (
+            <div className="card stack me-sub-card" key={r.id}>
+              <div className="me-sub-head">
+                <div>
+                  <h3 className="me-sub-title">{r.name}</h3>
+                  <div className="muted mono">prefix {r.tokenPrefix}</div>
+                </div>
+                <span className={badgeClass(r.health?.status || (r.enabled ? "ok" : "blocked"))}>
+                  {healthLabel(r.health?.status) || (r.enabled ? "启用" : "停用")}
+                </span>
+              </div>
+
+              <div className="stat-grid compact me-sub-stats">
+                <div className="stat-card mini">
+                  <div className="stat-label">流量</div>
+                  <div className="stat-value me-sub-stat-value">{usageText(r.health?.usage)}</div>
+                </div>
+                <div className="stat-card mini">
+                  <div className="stat-label">节点</div>
+                  <div className="stat-value">{r.health?.nodeActive ?? "—"}</div>
+                </div>
+                <div className="stat-card mini">
+                  <div className="stat-label">设备</div>
+                  <div className="stat-value">
+                    {r.health?.devices?.used ?? 0}
+                    <span className="muted" style={{ fontSize: 14 }}>/{r.health?.devices?.limit ?? "∞"}</span>
+                  </div>
+                </div>
+                <div className="stat-card mini">
+                  <div className="stat-label">到期</div>
+                  <div className="stat-value me-sub-stat-value">
+                    {r.health?.daysToExpire != null ? `${r.health.daysToExpire} 天` : fmtTime(r.expireAt)}
+                  </div>
+                </div>
+              </div>
+
+              {r.health?.warnings?.length ? <div className="warn-box">{r.health.warnings.join("；")}</div> : null}
+
+              <div className="me-sub-actions">
+                {CLIENT_LINKS.slice(0, 4).map((c) => (
+                  <button key={c.id} className="btn secondary sm" onClick={() => copyFormat(r.id, c.format, c.title)}>
+                    复制 {c.title}
+                  </button>
+                ))}
+                <button className="btn sm" onClick={() => rotate(r.id)}>轮换并复制</button>
+                <button className="btn secondary sm" onClick={() => goNodes(r.id)}>节点列表</button>
+              </div>
+
+              {!tokenMap[r.id] ? (
+                <div className="muted">当前会话无完整链接，需先轮换一次才能复制各格式 URL / 弹出二维码。</div>
+              ) : null}
+            </div>
+          ))}
+          {!rows.length ? (
+            <div className="card empty">
+              <div className="empty-ico" aria-hidden="true" />
+              <h3>暂无订阅</h3>
+              <p className="muted">请联系管理员为你创建订阅入口。</p>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="card stack">
+          <div className="me-sub-head">
+            <div>
+              <h3 className="me-sub-title">{activeSub?.name || "节点列表"}</h3>
+              <div className="muted">
+                {activeSub ? `可用节点 ${activeSub.health?.nodeActive ?? "—"} · prefix ${activeSub.tokenPrefix}` : "请先选择订阅"}
+              </div>
+            </div>
+            {activeSub ? (
+              <span className={badgeClass(activeSub.health?.status || (activeSub.enabled ? "ok" : "blocked"))}>
+                {healthLabel(activeSub.health?.status) || (activeSub.enabled ? "启用" : "停用")}
+              </span>
+            ) : null}
+          </div>
+
+          {loadingNodes ? (
+            <div className="muted">加载节点中…</div>
+          ) : nodes.length ? (
+            <div className="table-wrap">
+              <table className="table me-nodes-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>协议</th>
+                    <th>地址</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodes.map((n) => (
+                    <tr key={n.id}>
+                      <td>{n.name || `#${n.id}`}</td>
+                      <td className="mono">{n.protocol || "—"}</td>
+                      <td className="mono">{n.server ? `${n.server}${n.port != null ? `:${n.port}` : ""}` : "—"}</td>
+                      <td>
+                        <span className={badgeClass(n.enabled && !n.stale ? "ok" : n.stale ? "warn" : "blocked")}>
+                          {!n.enabled ? "停用" : n.stale ? "陈旧" : "可用"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="muted">{rows.length ? "该订阅分组暂无节点。" : "暂无订阅。"}</div>
+          )}
+        </div>
+      )}
+
+      <Modal
+        open={!!qr}
+        title={qr ? `二维码 · ${qr.title}` : "二维码"}
+        description="链接已复制到剪贴板，可直接扫码导入。"
+        onClose={() => setQr(null)}
+        footer={
+          <>
+            {qr?.clash ? <a className="btn secondary" href={qr.clash}>Clash 导入</a> : null}
+            {qr?.singbox ? <a className="btn secondary" href={qr.singbox}>sing-box 导入</a> : null}
+            <button type="button" className="btn secondary" onClick={() => qr && copyText(qr.url).then(() => setMsg("已再次复制链接"))}>再复制链接</button>
+            <button type="button" className="btn" onClick={() => setQr(null)}>关闭</button>
+          </>
+        }
+      >
+        {qr ? (
+          <div className="me-qr-modal">
+            <div className="me-qr-box">
+              <img src={qr.qr} alt="subscription qr" width={168} height={168} />
+            </div>
+            <div className="mono me-qr-url">{qr.url}</div>
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

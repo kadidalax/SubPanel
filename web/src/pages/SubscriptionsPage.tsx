@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { badgeClass, fmtTime } from "../lib/format";
+import { badgeClass, bytesToGbInput, fmtTime, gbToBytes } from "../lib/format";
 import { buildSubUrl, copyText, loadSubToken, saveSubToken } from "../lib/sub";
 import { useSelection } from "../lib/selection";
 import { BatchBar, ConfirmDialog, EmptyState, Flash, Modal, PageHeader } from "../components/ui";
@@ -69,7 +69,7 @@ export function SubscriptionsPage() {
     setName(row.name || "default");
     setDeviceLimit(row.device_limit == null ? "" : String(row.device_limit));
     setUsageMode(row.usage_mode || "none");
-    setTrafficLimit(row.traffic_limit_bytes == null ? "" : String(row.traffic_limit_bytes));
+    setTrafficLimit(bytesToGbInput(row.traffic_limit_bytes));
     setExclusiveSourceId(row.exclusive_source_id == null ? "" : String(row.exclusive_source_id));
     setExpireDays("");
     setDefaultFormat(row.default_format || "auto");
@@ -89,7 +89,7 @@ export function SubscriptionsPage() {
           groupId: Number(groupId),
           deviceLimit: deviceLimit ? Number(deviceLimit) : null,
           usageMode,
-          trafficLimitBytes: trafficLimit ? Number(trafficLimit) : null,
+          trafficLimitBytes: gbToBytes(trafficLimit),
           exclusiveSourceId: exclusiveSourceId ? Number(exclusiveSourceId) : null,
           expireAt: expireAt,
           defaultFormat,
@@ -102,7 +102,7 @@ export function SubscriptionsPage() {
           name,
           deviceLimit: deviceLimit ? Number(deviceLimit) : null,
           usageMode,
-          trafficLimitBytes: trafficLimit ? Number(trafficLimit) : null,
+          trafficLimitBytes: gbToBytes(trafficLimit),
           exclusiveSourceId: exclusiveSourceId ? Number(exclusiveSourceId) : null,
           expireAt,
           defaultFormat,
@@ -222,7 +222,7 @@ export function SubscriptionsPage() {
     <>
       <PageHeader
         title="订阅入口"
-        sub="为用户下发独立订阅链接。限制的是「订阅设备」指纹，不是代理在线连接数。"
+        sub="为用户下发独立订阅链接。限制的是「拉取设备」指纹，不是代理在线连接数。"
         steps={["分组准备好", "创建订阅", "复制链接", "客户端导入"]}
         actions={<button className="btn" onClick={openCreateModal}>创建订阅</button>}
       />
@@ -281,7 +281,7 @@ export function SubscriptionsPage() {
             <thead>
               <tr>
                 <th className="check-col"><input type="checkbox" checked={sel.allSelected(ids)} onChange={() => sel.toggleAll(ids)} /></th>
-                <th>ID</th><th>名称</th><th>用户</th><th>前缀</th><th>状态</th><th>订阅设备</th><th>模式</th><th>到期</th><th>操作</th>
+                <th>ID</th><th>名称</th><th>用户</th><th>前缀</th><th>状态</th><th>拉取设备</th><th>模式</th><th>到期</th><th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -356,7 +356,7 @@ export function SubscriptionsPage() {
       <Modal
         open={openCreate}
         title={editId ? `编辑订阅 #${editId}` : "创建订阅"}
-        description="token 仅显示一次。设备上限按订阅拉取指纹计算。"
+        description="token 仅显示一次。拉取设备上限按订阅拉取指纹计算。"
         onClose={() => { setOpenCreate(false); setEditId(null); }}
         wide
         footer={
@@ -383,7 +383,7 @@ export function SubscriptionsPage() {
               </select>
             </div>
             <div className="field"><label>名称</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div className="field"><label>订阅设备上限</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} placeholder="空=不限" /></div>
+            <div className="field"><label>拉取拉取设备上限</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} placeholder="空=不限" /></div>
             <div className="field">
               <label>默认格式</label>
               <select className="input" value={defaultFormat} onChange={(e) => setDefaultFormat(e.target.value)}>
@@ -404,7 +404,7 @@ export function SubscriptionsPage() {
               </select>
             </div>
             {usageMode !== "none" ? (
-              <div className="field"><label>流量上限（字节）</label><input className="input" value={trafficLimit} onChange={(e) => setTrafficLimit(e.target.value)} /></div>
+              <div className="field"><label>流量上限（GB）</label><input className="input" value={trafficLimit} onChange={(e) => setTrafficLimit(e.target.value)} placeholder="例如 100" inputMode="decimal" /></div>
             ) : null}
             {usageMode === "upstream_exclusive" ? (
               <div className="field">

@@ -4,7 +4,7 @@ import { requireUser, publicUser } from "../auth/session.ts";
 import { jsonError, jsonOk } from "../util/json.ts";
 import { sameOrigin, getClientIp, getRequestId } from "../util/request.ts";
 import { writeAudit } from "../db/audit.ts";
-import { createUser, listUsers, setUserEnabled, updateUserRole } from "../db/users.ts";
+import { createUser, listUsers, setUserEnabled } from "../db/users.ts";
 import { hashPassword } from "../crypto/password.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
@@ -48,18 +48,19 @@ import { sendNotification } from "../services/notifications.ts";
 import { parseSubscriptionText } from "../parsers/detect.ts";
 import { renderProfile } from "../renderers/index.ts";
 import { buildCompatMatrix } from "../parsers/capabilities.ts";
+import { encryptSecret } from "../services/credentials.ts";
 
 type AppEnv = { Bindings: Env };
 export const adminRoutes = new Hono<AppEnv>();
 
 function isStaff(role: string) {
-  return role === "admin" || role === "operator";
+  return role === "admin";
 }
 
 async function requireStaff(c: any) {
   const auth = await requireUser(c.env, c.req.raw);
   if (!auth) return { error: jsonError(401, "unauthorized", "login required") };
-  if (!isStaff(auth.user.role)) return { error: jsonError(403, "forbidden", "staff only") };
+  if (!isStaff(auth.user.role)) return { error: jsonError(403, "forbidden", "admin only") };
   return { auth };
 }
 
@@ -106,7 +107,7 @@ adminRoutes.post("/users", async (c) => {
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
   const email = body.email ? String(body.email).trim() : null;
-  const role = body.role === "operator" ? "operator" : "user";
+  const role = "user";
   if (!username || password.length < 10) return jsonError(400, "invalid", "username and password(>=10) required");
   const vars = readVars(c.env);
   const passwordHash = await hashPassword(password, vars.passwordIterations);
@@ -180,12 +181,6 @@ adminRoutes.put("/users/:id", async (c) => {
     targetType: "user",
     targetId: String(id),
   });
-  if (body?.role === "operator" || body?.role === "user") {
-    const target = await c.env.DB.prepare("SELECT role FROM users WHERE id = ?").bind(id).first<{ role: string }>();
-    if (!target) return jsonError(404, "not_found", "user not found");
-    if (target.role === "admin") return jsonError(400, "invalid", "cannot change admin role");
-    await updateUserRole(c.env.DB, id, body.role, now);
-  }
   return jsonOk({ ok: true });
 });
 
@@ -977,10 +972,12 @@ adminRoutes.put("/settings", async (c) => {
   for (const [key, value] of Object.entries(settings)) {
     if (!allowed.has(key)) continue;
     if (key === "smtp_pass" && (value == null || String(value) === "")) continue;
+    let store: unknown = value;
+    if (key === "smtp_pass") store = await encryptSecret(c.env, String(value));
     await c.env.DB.prepare(
       "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
     )
-      .bind(key, JSON.stringify(value), now)
+      .bind(key, JSON.stringify(store), now)
       .run();
   }
   await writeAudit(c.env.DB, {

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL COLLATE NOCASE,
   email TEXT COLLATE NOCASE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'operator')),
+  role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
   enabled INTEGER NOT NULL DEFAULT 1,
   expire_at INTEGER,
   session_version INTEGER NOT NULL DEFAULT 0,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     CHECK (default_format IN ('auto', 'mihomo', 'singbox', 'uri', 'surge')),
   access_policy TEXT NOT NULL DEFAULT 'allow',
   usage_mode TEXT NOT NULL DEFAULT 'none'
-    CHECK (usage_mode IN ('none', 'manual', 'upstream_exclusive', 'managed')),
+    CHECK (usage_mode IN ('none', 'manual', 'upstream_exclusive')),
   traffic_limit_bytes INTEGER,
   manual_used_bytes INTEGER NOT NULL DEFAULT 0,
   exclusive_source_id INTEGER REFERENCES sources(id),

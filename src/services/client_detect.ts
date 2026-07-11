@@ -17,7 +17,8 @@ export function detectClient(uaRaw: string | null): { family: ClientFamily; form
     ua.includes("clash") ||
     ua.includes("mihomo") ||
     ua.includes("flclash") ||
-    ua.includes("meta") ||
+    ua.includes("clashmeta") ||
+    ua.includes("clash-meta") ||
     ua.includes("stash") ||
     ua.includes("clashx") ||
     ua.includes("clash-verge") ||

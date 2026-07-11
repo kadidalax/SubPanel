@@ -13,9 +13,10 @@ import { SubscriptionDetailPage } from "./pages/SubscriptionDetailPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { MePage } from "./pages/MePage";
+import { PasswordPage } from "./pages/PasswordPage";
 
 function isStaff(role?: string) {
-  return role === "admin" || role === "operator";
+  return role === "admin";
 }
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/logs" element={isStaff(user.role) ? <LogsPage /> : <Navigate to="/me" replace />} />
         <Route path="/settings" element={user.role === "admin" ? <SettingsPage /> : <Navigate to="/me" replace />} />
         <Route path="/me" element={<MePage />} />
+        <Route path="/password" element={<PasswordPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

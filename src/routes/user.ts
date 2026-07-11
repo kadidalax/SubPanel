@@ -1,4 +1,4 @@
-﻿import { Hono } from "hono";
+import { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { requireUser, publicUser } from "../auth/session.ts";
 import { jsonError, jsonOk } from "../util/json.ts";
@@ -95,6 +95,51 @@ userRoutes.post("/subscriptions/:id/rotate", async (c) => {
   }
 });
 
+
+userRoutes.get("/subscriptions/:id/nodes", async (c) => {
+  const gate = await requireLogin(c);
+  if ("error" in gate) return gate.error;
+  const id = Number(c.req.param("id"));
+  const sub = await c.env.DB.prepare(
+    "SELECT id, user_id, group_id, enabled FROM subscriptions WHERE id = ? LIMIT 1",
+  )
+    .bind(id)
+    .first<any>();
+  if (!sub || Number(sub.user_id) !== gate.auth.user.id) {
+    return jsonError(404, "not_found", "subscription not found");
+  }
+  const res = await c.env.DB.prepare(
+    `SELECT sn.id AS id, sn.protocol AS protocol, sn.name AS name, sn.normalized_json AS normalized_json, sn.enabled AS enabled, sn.stale AS stale
+     FROM group_nodes gn
+     JOIN source_nodes sn ON sn.id = gn.node_id
+     WHERE gn.group_id = ? AND gn.enabled = 1
+     ORDER BY gn.sort_order ASC, sn.id ASC`,
+  )
+    .bind(sub.group_id)
+    .all<any>();
+  const nodes = (res.results ?? []).map((row) => {
+    let server = "";
+    let port: number | null = null;
+    try {
+      const n = JSON.parse(row.normalized_json || "{}");
+      server = String(n.server || n.host || "");
+      port = n.port != null ? Number(n.port) : null;
+    } catch {
+      /* ignore */
+    }
+    return {
+      id: Number(row.id),
+      name: row.name,
+      protocol: row.protocol,
+      server,
+      port,
+      enabled: Number(row.enabled) === 1,
+      stale: Number(row.stale) === 1,
+    };
+  });
+  return jsonOk({ nodes, groupId: sub.group_id });
+});
+
 userRoutes.put("/password", async (c) => {
   const gate = await requireLogin(c);
   if ("error" in gate) return gate.error;
@@ -115,5 +160,6 @@ userRoutes.put("/password", async (c) => {
   )
     .bind(await hashPassword(next, vars.passwordIterations), now, gate.auth.user.id)
     .run();
-  return jsonOk({ ok: true });
+  await c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(gate.auth.user.id).run();
+  return jsonOk({ ok: true, reauth: true });
 });

@@ -1,4 +1,4 @@
-﻿export type UserRole = "admin" | "user" | "operator";
+export type UserRole = "admin" | "user";
 
 export interface UserRow {
   id: number;
@@ -57,7 +57,7 @@ export interface SubscriptionRow {
   device_limit: number | null;
   default_format: string;
   access_policy: string;
-  usage_mode: "none" | "manual" | "upstream_exclusive" | "managed";
+  usage_mode: "none" | "manual" | "upstream_exclusive";
   traffic_limit_bytes: number | null;
   manual_used_bytes: number;
   exclusive_source_id: number | null;

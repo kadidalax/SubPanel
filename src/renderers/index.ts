@@ -1,4 +1,4 @@
-﻿import type { DeliveryFormat, NormalizedNode, OutputFormat } from "../parsers/types.ts";
+import type { DeliveryFormat, NormalizedNode, OutputFormat } from "../parsers/types.ts";
 import { renderMihomo } from "./mihomo.ts";
 import { renderSingbox } from "./singbox.ts";
 import { renderUriList } from "./uri.ts";

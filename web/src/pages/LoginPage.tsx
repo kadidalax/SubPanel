@@ -4,11 +4,16 @@ import { api } from "../lib/api";
 import { applyTheme, cycleTheme, getStoredTheme, resolveTheme, type ThemeMode } from "../lib/theme";
 import { BrandMark } from "../components/BrandMark";
 
+type Mode = "login" | "bootstrap" | "forgot" | "reset";
+
 export function LoginPage({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"login" | "bootstrap">("login");
+  const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
   const themeResolved = resolveTheme(themeMode);
@@ -17,22 +22,65 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
     applyTheme(themeMode);
   }, [themeMode]);
 
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("reset_token");
+    if (t) {
+      setResetToken(t);
+      setMode("reset");
+    }
+  }, []);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setMsg("");
     try {
       if (mode === "bootstrap") {
         await api.post("/api/auth/bootstrap-admin", { username, password });
+        await api.post("/api/auth/login", { username, password });
+        onDone();
+        return;
+      }
+      if (mode === "forgot") {
+        await api.post("/api/auth/forgot-password", { email });
+        setMsg("若邮箱存在，已发送重置链接（请检查收件箱）。");
+        return;
+      }
+      if (mode === "reset") {
+        await api.post("/api/auth/reset-password", { token: resetToken, newPassword: password });
+        setMsg("密码已重置，请登录。");
+        setMode("login");
+        setPassword("");
+        // drop token from URL
+        window.history.replaceState({}, "", "/");
+        return;
       }
       await api.post("/api/auth/login", { username, password });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      setError(err instanceof Error ? err.message : "操作失败");
     } finally {
       setLoading(false);
     }
   }
+
+  const title =
+    mode === "login"
+      ? "登录后台"
+      : mode === "bootstrap"
+        ? "初始化管理员"
+        : mode === "forgot"
+          ? "找回密码"
+          : "重置密码";
+  const sub =
+    mode === "login"
+      ? "使用管理员或子账号登录。首次部署请先创建管理员。"
+      : mode === "bootstrap"
+        ? "创建首个管理员账号后自动登录。"
+        : mode === "forgot"
+          ? "输入账号邮箱，若存在将发送重置链接（需已配置 SMTP）。"
+          : "设置新密码（至少 10 位）。";
 
   return (
     <div className="auth-page">
@@ -65,7 +113,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           )}
         </button>
       </div>
-      <Flash error={error} onDismissError={() => setError("")} />
+      <Flash error={error} msg={msg} onDismissError={() => setError("")} onDismissMsg={() => setMsg("")} />
       <form className="card auth-card stack" onSubmit={submit}>
         <div className="auth-brand">
           <BrandMark />
@@ -75,21 +123,54 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           </div>
         </div>
         <div>
-          <h1>{mode === "login" ? "登录后台" : "初始化管理员"}</h1>
-          <p>{mode === "login" ? "使用管理员或子账号登录。首次部署请先创建管理员。" : "创建首个管理员账号后自动登录。"}</p>
+          <h1>{title}</h1>
+          <p>{sub}</p>
         </div>
-        <div className="field">
-          <label>用户名</label>
-          <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
-        </div>
-        <div className="field">
-          <label>密码</label>
-          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-        </div>
-        <button className="btn" disabled={loading}>{loading ? "处理中..." : mode === "login" ? "登录" : "创建并登录"}</button>
-        <button type="button" className="btn secondary" onClick={() => { setMode(mode === "login" ? "bootstrap" : "login"); setError(""); }}>
-          {mode === "login" ? "首次初始化管理员" : "返回登录"}
+        {mode === "login" || mode === "bootstrap" ? (
+          <>
+            <div className="field">
+              <label>用户名</label>
+              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+            </div>
+            <div className="field">
+              <label>密码</label>
+              <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "bootstrap" ? "new-password" : "current-password"} />
+            </div>
+          </>
+        ) : null}
+        {mode === "forgot" ? (
+          <div className="field">
+            <label>邮箱</label>
+            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+          </div>
+        ) : null}
+        {mode === "reset" ? (
+          <div className="field">
+            <label>新密码</label>
+            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          </div>
+        ) : null}
+        <button className="btn" disabled={loading}>
+          {loading
+            ? "处理中..."
+            : mode === "login"
+              ? "登录"
+              : mode === "bootstrap"
+                ? "创建并登录"
+                : mode === "forgot"
+                  ? "发送重置邮件"
+                  : "重置密码"}
         </button>
+        <div className="auth-links">
+          {mode === "login" ? (
+            <>
+              <button type="button" className="btn secondary" onClick={() => { setMode("bootstrap"); setError(""); setMsg(""); }}>首次初始化管理员</button>
+              <button type="button" className="btn secondary" onClick={() => { setMode("forgot"); setError(""); setMsg(""); }}>忘记密码</button>
+            </>
+          ) : (
+            <button type="button" className="btn secondary" onClick={() => { setMode("login"); setError(""); setMsg(""); }}>返回登录</button>
+          )}
+        </div>
       </form>
       <footer className="app-footer auth-footer">
         <span>Powered by SubPanel</span>

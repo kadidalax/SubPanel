@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { badgeClass, fmtBytes, fmtTime, healthLabel } from "../lib/format";
+import { badgeClass, bytesToGbInput, fmtBytes, fmtTime, gbToBytes, healthLabel } from "../lib/format";
 import { buildImportLinks, buildSubUrl, CLIENT_LINKS, copyText, loadSubToken, saveSubToken } from "../lib/sub";
 import { Flash } from "../components/ui";
 
@@ -23,8 +23,8 @@ export function SubscriptionDetailPage() {
     setData(res);
     const s = res.subscription;
     setDeviceLimit(s.deviceLimit == null ? "" : String(s.deviceLimit));
-    setManualUsed(String(s.manualUsedBytes || 0));
-    setTrafficLimit(s.trafficLimitBytes == null ? "" : String(s.trafficLimitBytes));
+    setManualUsed(bytesToGbInput(s.manualUsedBytes || 0) || "0");
+    setTrafficLimit(bytesToGbInput(s.trafficLimitBytes));
     setExpireDays("");
     setToken(loadSubToken(subId));
   }
@@ -72,16 +72,16 @@ export function SubscriptionDetailPage() {
   }
 
   async function resetDevices() {
-    if (!confirm("重置全部订阅设备指纹？用户需重新拉取订阅。")) return;
+    if (!confirm("重置全部拉取设备指纹？用户需重新拉取订阅。")) return;
     const res = await api.del<any>(`/api/admin/subscriptions/${subId}/devices`);
-    setMsg(`已重置 ${res.removed || 0} 个订阅设备`);
+    setMsg(`已重置 ${res.removed || 0} 个拉取设备`);
     await load();
   }
 
   async function removeDevice(fingerprint: string) {
-    if (!confirm("移除该订阅设备？")) return;
+    if (!confirm("移除该拉取设备？")) return;
     const res = await api.del<any>(`/api/admin/subscriptions/${subId}/devices/${encodeURIComponent(fingerprint)}`);
-    setMsg(res.removed ? "已移除该订阅设备" : "设备不存在");
+    setMsg(res.removed ? "已移除该拉取设备" : "设备不存在");
     await load();
   }
 
@@ -96,8 +96,8 @@ export function SubscriptionDetailPage() {
         patch.expireAt = Date.now() + Number(expireDays) * 86400000;
       }
       if (data?.subscription?.usageMode === "manual") {
-        patch.manualUsedBytes = manualUsed === "" ? 0 : Number(manualUsed);
-        patch.trafficLimitBytes = trafficLimit === "" ? null : Number(trafficLimit);
+        patch.manualUsedBytes = gbToBytes(manualUsed) ?? 0;
+        patch.trafficLimitBytes = gbToBytes(trafficLimit);
       }
       await api.put(`/api/admin/subscriptions/${subId}`, patch);
       setMsg("治理参数已保存");
@@ -138,7 +138,7 @@ export function SubscriptionDetailPage() {
           <div className="page-actions">
             <button className="btn" onClick={rotateAndCopy}>轮换并复制</button>
             <button className="btn secondary" onClick={toggleEnabled}>{s.enabled ? "停用" : "启用"}</button>
-            <button className="btn secondary" onClick={resetDevices}>重置订阅设备</button>
+            <button className="btn secondary" onClick={resetDevices}>重置拉取设备</button>
             <button className="btn secondary" onClick={() => navigate("/subscriptions")}>返回列表</button>
           </div>
         </div>
@@ -153,7 +153,7 @@ export function SubscriptionDetailPage() {
           </div>
           <div className="stat-grid compact">
             <div className="stat-card mini"><div className="stat-label">可用节点</div><div className="stat-value">{h.nodeActive}<span className="muted" style={{ fontSize: 14 }}>/{h.nodeTotal}</span></div></div>
-            <div className="stat-card mini"><div className="stat-label">订阅设备</div><div className="stat-value">{h.devices.used}<span className="muted" style={{ fontSize: 14 }}>/{h.devices.limit ?? "∞"}</span></div></div>
+            <div className="stat-card mini"><div className="stat-label">拉取设备</div><div className="stat-value">{h.devices.used}<span className="muted" style={{ fontSize: 14 }}>/{h.devices.limit ?? "∞"}</span></div></div>
             <div className="stat-card mini"><div className="stat-label">{h.usage.label}</div><div className="stat-value" style={{ fontSize: 18 }}>{h.usage.percent != null ? `${h.usage.percent}%` : "—"}</div></div>
             <div className="stat-card mini"><div className="stat-label">到期</div><div className="stat-value" style={{ fontSize: 16 }}>{h.daysToExpire != null ? `${h.daysToExpire}d` : "不限"}</div></div>
           </div>
@@ -223,12 +223,12 @@ export function SubscriptionDetailPage() {
       <div className="detail-stack" style={{ marginTop: 16 }}>
         <form className="card stack" onSubmit={saveGovernance}>
           <h3 style={{ margin: 0 }}>治理</h3>
-          <div className="field"><label>订阅设备上限（空=不限）</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} /></div>
+          <div className="field"><label>拉取拉取设备上限（空=不限）</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} /></div>
           <div className="field"><label>延长有效天数（从现在起，可选）</label><input className="input" value={expireDays} onChange={(e) => setExpireDays(e.target.value)} placeholder="例如 30" /></div>
           {s.usageMode === "manual" ? (
             <>
-              <div className="field"><label>手工已用字节</label><input className="input" value={manualUsed} onChange={(e) => setManualUsed(e.target.value)} /></div>
-              <div className="field"><label>流量额度字节（空=不限）</label><input className="input" value={trafficLimit} onChange={(e) => setTrafficLimit(e.target.value)} /></div>
+              <div className="field"><label>手工已用（GB）</label><input className="input" value={manualUsed} onChange={(e) => setManualUsed(e.target.value)} placeholder="0" inputMode="decimal" /></div>
+              <div className="field"><label>流量上限（GB，空=不限）</label><input className="input" value={trafficLimit} onChange={(e) => setTrafficLimit(e.target.value)} placeholder="例如 100" inputMode="decimal" /></div>
             </>
           ) : (
             <div className="muted">流量模式：{s.usageMode}{s.usageMode === "upstream_exclusive" ? "（上游账号总流量）" : ""}</div>
@@ -237,7 +237,7 @@ export function SubscriptionDetailPage() {
         </form>
 
         <div className="card stack">
-          <h3 style={{ margin: 0 }}>订阅设备</h3>
+          <h3 style={{ margin: 0 }}>拉取设备</h3>
           <table>
             <thead><tr><th>指纹</th><th>客户端</th><th>首次</th><th>最近</th><th></th></tr></thead>
             <tbody>
@@ -250,7 +250,7 @@ export function SubscriptionDetailPage() {
                   <td><button type="button" className="btn secondary" onClick={() => removeDevice(d.fingerprint)}>移除</button></td>
                 </tr>
               ))}
-              {!data.devices?.length ? <tr><td colSpan={5} className="muted">暂无订阅设备</td></tr> : null}
+              {!data.devices?.length ? <tr><td colSpan={5} className="muted">暂无拉取设备</td></tr> : null}
             </tbody>
           </table>
         </div>

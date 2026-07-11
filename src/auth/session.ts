@@ -1,4 +1,4 @@
-﻿import type { Env } from '../env.ts';
+import type { Env } from '../env.ts';
 import { readVars } from '../env.ts';
 import { sha256Text } from '../crypto/hash.ts';
 import {

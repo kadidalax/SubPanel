@@ -69,6 +69,13 @@ const icons: Record<string, any> = {
       <path d="M5 19a7 7 0 0 1 14 0" />
     </svg>
   ),
+  password: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      <circle cx="12" cy="16" r="1.2" />
+    </svg>
+  ),
 };
 
 const adminGroups: NavGroup[] = [
@@ -94,31 +101,7 @@ const adminGroups: NavGroup[] = [
       { to: "/logs", label: "日志", icon: "logs" },
       { to: "/settings", label: "设置", icon: "settings" },
       { to: "/me", label: "我的订阅", icon: "me" },
-    ],
-  },
-];
-
-const operatorGroups: NavGroup[] = [
-  {
-    title: "运营",
-    items: [
-      { to: "/", label: "总览", end: true, icon: "dash" },
-      { to: "/subscriptions", label: "订阅入口", icon: "sub" },
-    ],
-  },
-  {
-    title: "资源",
-    items: [
-      { to: "/sources", label: "数据源", icon: "source" },
-      { to: "/nodes", label: "节点池", icon: "nodes" },
-      { to: "/groups", label: "分组", icon: "groups" },
-    ],
-  },
-  {
-    title: "系统",
-    items: [
-      { to: "/logs", label: "日志", icon: "logs" },
-      { to: "/me", label: "我的订阅", icon: "me" },
+      { to: "/password", label: "修改密码", icon: "password" },
     ],
   },
 ];
@@ -126,7 +109,10 @@ const operatorGroups: NavGroup[] = [
 const userGroups: NavGroup[] = [
   {
     title: "账户",
-    items: [{ to: "/me", label: "我的订阅", icon: "me" }],
+    items: [
+      { to: "/me", label: "我的订阅", icon: "me" },
+      { to: "/password", label: "修改密码", icon: "password" },
+    ],
   },
 ];
 
@@ -207,7 +193,7 @@ function initials(name = "") {
 }
 
 export function Layout({ user, onLogout }: { user: any; onLogout: () => void }) {
-  const groups = user?.role === "admin" ? adminGroups : user?.role === "operator" ? operatorGroups : userGroups;
+  const groups = user?.role === "admin" ? adminGroups : userGroups;
   const [open, setOpen] = useState(false);
   const location = useLocation();
 

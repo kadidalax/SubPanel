@@ -1,4 +1,4 @@
-﻿import type { Env } from "../env.ts";
+import type { Env } from "../env.ts";
 import type { DeliveryFormat, NormalizedNode, OutputFormat } from "../parsers/types.ts";
 import { renderProfile } from "../renderers/index.ts";
 import { readVars } from "../env.ts";

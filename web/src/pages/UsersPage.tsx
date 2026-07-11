@@ -136,7 +136,7 @@ export function UsersPage() {
     <>
       <PageHeader
         title="用户"
-        sub="admin / user。次级账号固定为 user。"
+        sub="管理员 / 次级用户（user）。"
         steps={["创建用户", "下发订阅", "查看使用"]}
         actions={<button className="btn" onClick={openCreateModal}>新建用户</button>}
       />

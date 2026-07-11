@@ -37,3 +37,22 @@ export function sourceHealthLabel(status?: string) {
   if (status === "disabled") return "停用";
   return status || "—";
 }
+
+const GB = 1024 * 1024 * 1024;
+
+/** input GB string -> bytes; empty => null */
+export function gbToBytes(gb: string | number | null | undefined): number | null {
+  if (gb == null || gb === "") return null;
+  const n = Number(gb);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * GB);
+}
+
+/** bytes -> GB string for form fields */
+export function bytesToGbInput(bytes?: number | null): string {
+  if (bytes == null) return "";
+  const n = Number(bytes) / GB;
+  if (!Number.isFinite(n)) return "";
+  // trim trailing zeros
+  return String(Math.round(n * 1000) / 1000);
+}

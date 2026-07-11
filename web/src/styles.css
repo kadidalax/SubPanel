@@ -1504,3 +1504,109 @@ a.theme-toggle:hover { color: inherit; }
   background: color-mix(in oklab, var(--brand) 22%, transparent);
   color: var(--text);
 }
+
+
+/* me page subscription cards */
+.me-sub-card { gap: 14px; }
+.me-sub-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.me-sub-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.me-sub-stats .me-sub-stat-value {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.me-sub-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.me-sub-main { flex: 1 1 auto; min-width: 0; }
+.me-sub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.me-sub-import { display: grid; gap: 8px; }
+.me-sub-qr {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-muted);
+}
+.me-sub-qr img {
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  display: block;
+}
+.me-nodes {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+.me-nodes-table th,
+.me-nodes-table td {
+  font-size: 0.86rem;
+}
+@media (max-width: 720px) {
+  .me-sub-body {
+    flex-direction: column;
+  }
+  .me-sub-qr {
+    align-self: flex-start;
+  }
+}
+
+
+/* me QR modal */
+.me-qr-modal {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  text-align: center;
+}
+.me-qr-box {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.me-qr-box img {
+  display: block;
+  width: 168px;
+  height: 168px;
+  border-radius: 8px;
+}
+.me-qr-url {
+  max-width: 100%;
+  word-break: break-all;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.auth-links .btn {
+  flex: 1 1 auto;
+}

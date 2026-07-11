@@ -1,4 +1,4 @@
-﻿import type { Env } from "../env.ts";
+import type { Env } from "../env.ts";
 import { sha256Text } from "../crypto/hash.ts";
 import { randomToken } from "../util/ids.ts";
 import { nowMs } from "../util/time.ts";
@@ -41,8 +41,8 @@ function assertUsage(mode: UsageMode | undefined, exclusiveSourceId: number | nu
   if (mode === "upstream_exclusive" && !exclusiveSourceId) {
     throw new Error("exclusive_source_id required");
   }
-  if ((mode as string) === "managed") {
-    throw new Error("managed usage mode is not enabled");
+  if (mode && !["none", "manual", "upstream_exclusive"].includes(mode)) {
+    throw new Error("invalid usage mode");
   }
 }
 
@@ -353,8 +353,10 @@ function trafficExceeded(sub: any, usage: { total_bytes?: number | null; upload_
 export async function serveSubscription(env: Env, request: Request, token: string): Promise<Response> {
   const tokenHash = await sha256Text(token);
   const sub = await env.DB.prepare(
-    `SELECT s.*, u.enabled AS user_enabled, u.expire_at AS user_expire_at
-     FROM subscriptions s JOIN users u ON u.id = s.user_id
+    `SELECT s.*, u.enabled AS user_enabled, u.expire_at AS user_expire_at, g.revision AS group_revision
+     FROM subscriptions s
+     JOIN users u ON u.id = s.user_id
+     JOIN groups g ON g.id = s.group_id
      WHERE s.token_hash = ? LIMIT 1`,
   )
     .bind(tokenHash)
@@ -388,17 +390,34 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     formatFallback = normalized.fallback;
   }
 
-  // passthrough source short-circuit: if group only references one passthrough source and format matches
-  const passthrough = await env.DB.prepare(
-    `SELECT src.id, src.kind, src.passthrough_format, src.manual_content, src.encrypted_url
+  // passthrough only when EVERY active group node belongs to the same passthrough source
+  const mix = await env.DB.prepare(
+    `SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN src.kind = 'passthrough' THEN 1 ELSE 0 END) AS pass_n,
+        COUNT(DISTINCT src.id) AS src_n,
+        MAX(src.id) AS src_id,
+        MAX(src.passthrough_format) AS passthrough_format,
+        MAX(src.manual_content) AS manual_content
      FROM group_nodes gn
      JOIN source_nodes sn ON sn.id = gn.node_id
      JOIN sources src ON src.id = sn.source_id
-     WHERE gn.group_id = ? AND src.kind = 'passthrough'
-     LIMIT 1`,
+     WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0`,
   )
     .bind(sub.group_id)
     .first<any>();
+  const purePassthrough =
+    Number(mix?.total || 0) > 0 &&
+    Number(mix?.pass_n || 0) === Number(mix?.total || 0) &&
+    Number(mix?.src_n || 0) === 1;
+  const passthrough =
+    purePassthrough
+      ? {
+          id: mix.src_id,
+          passthrough_format: mix.passthrough_format,
+          manual_content: mix.manual_content,
+        }
+      : null;
 
   const vars = readVars(env);
   const ip = request.headers.get("cf-connecting-ip") || "0.0.0.0";
@@ -409,29 +428,56 @@ export async function serveSubscription(env: Env, request: Request, token: strin
   const uaNormHash = await sha256Text(ua.toLowerCase());
   const fingerprint = await sha256Text(ipPrefix + "|" + uaNormHash + "|" + detected.family);
   const windowStart = now - vars.deviceWindowMs;
+
+  // device bookkeeping: throttle last_seen writes (5 min)
   const existing = await env.DB.prepare(
-    "SELECT fingerprint FROM subscription_devices WHERE subscription_id = ? AND fingerprint = ? LIMIT 1",
+    "SELECT fingerprint, last_seen_at FROM subscription_devices WHERE subscription_id = ? AND fingerprint = ? LIMIT 1",
   )
     .bind(sub.id, fingerprint)
-    .first<{ fingerprint: string }>();
-  if (!existing && sub.device_limit != null) {
-    const countRow = await env.DB.prepare(
-      "SELECT COUNT(*) AS c FROM subscription_devices WHERE subscription_id = ? AND last_seen_at >= ?",
+    .first<{ fingerprint: string; last_seen_at: number }>();
+
+  if (!existing) {
+    if (sub.device_limit != null) {
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS c FROM subscription_devices WHERE subscription_id = ? AND last_seen_at >= ?",
+      )
+        .bind(sub.id, windowStart)
+        .first<{ c: number }>();
+      if ((countRow?.c ?? 0) >= Number(sub.device_limit)) return opaque404();
+    }
+    await env.DB.prepare(
+      `INSERT INTO subscription_devices
+        (subscription_id, fingerprint, client_family, ip_hash, ua_hash, first_seen_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(subscription_id, fingerprint) DO UPDATE SET
+        last_seen_at = excluded.last_seen_at,
+        client_family = excluded.client_family`,
     )
-      .bind(sub.id, windowStart)
-      .first<{ c: number }>();
-    if ((countRow?.c ?? 0) >= Number(sub.device_limit)) return opaque404();
+      .bind(sub.id, fingerprint, detected.family, await sha256Text(ipPrefix), uaNormHash, now, now)
+      .run();
+    // post-insert recheck (TOCTOU mitigation)
+    if (sub.device_limit != null) {
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS c FROM subscription_devices WHERE subscription_id = ? AND last_seen_at >= ?",
+      )
+        .bind(sub.id, windowStart)
+        .first<{ c: number }>();
+      if ((countRow?.c ?? 0) > Number(sub.device_limit)) {
+        await env.DB.prepare(
+          "DELETE FROM subscription_devices WHERE subscription_id = ? AND fingerprint = ?",
+        )
+          .bind(sub.id, fingerprint)
+          .run();
+        return opaque404();
+      }
+    }
+  } else if (now - Number(existing.last_seen_at || 0) > 5 * 60 * 1000) {
+    await env.DB.prepare(
+      "UPDATE subscription_devices SET last_seen_at = ?, client_family = ? WHERE subscription_id = ? AND fingerprint = ?",
+    )
+      .bind(now, detected.family, sub.id, fingerprint)
+      .run();
   }
-  await env.DB.prepare(
-    `INSERT INTO subscription_devices
-      (subscription_id, fingerprint, client_family, ip_hash, ua_hash, first_seen_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(subscription_id, fingerprint) DO UPDATE SET
-      last_seen_at = excluded.last_seen_at,
-      client_family = excluded.client_family`,
-  )
-    .bind(sub.id, fingerprint, detected.family, await sha256Text(ipPrefix), uaNormHash, now, now)
-    .run();
 
   let body = "";
   let contentType = "text/plain; charset=utf-8";
@@ -450,34 +496,35 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     const nodes = await loadGroupNodes(env, Number(sub.group_id));
     const rendered = renderProfile(format, nodes, vars.siteName);
     if (!rendered.body.trim()) {
-      return new Response(
-        JSON.stringify({
-          error: { code: "no_compatible_nodes", message: "all nodes skipped" },
-          skipped: rendered.skipped,
-        }),
-        { status: 422, headers: { "content-type": "application/json; charset=utf-8" } },
-      );
+      // keep opaque to avoid confirming token validity + node state
+      return opaque404();
     }
     body = rendered.body;
     contentType = rendered.contentType;
     skippedCount = rendered.skipped.length;
   }
 
+  const groupRev = Number(sub.group_revision || 0);
   const etagValue = (
-    await sha256Text([sub.id, sub.revision, sub.group_id, format, body.length].join(":"))
-  ).slice(0, 16);
+    await sha256Text([sub.id, sub.revision, sub.group_id, groupRev, format, body].join(":"))
+  ).slice(0, 24);
   const etag = String.fromCharCode(34) + etagValue + String.fromCharCode(34);
   if (request.headers.get("if-none-match") === etag) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
 
-  await env.DB.prepare(
-    `INSERT INTO subscription_access_logs
-      (subscription_id, device_fingerprint, client_family, format, response_bytes, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 200, ?)`,
-  )
-    .bind(sub.id, fingerprint, detected.family, format, new TextEncoder().encode(body).byteLength, now)
-    .run();
+  // access log: sample ~20% after first hit per device in window to reduce write amplification
+  // always log new devices; existing ~1/5
+  const shouldLog = !existing || Math.random() < 0.2;
+  if (shouldLog) {
+    await env.DB.prepare(
+      `INSERT INTO subscription_access_logs
+        (subscription_id, device_fingerprint, client_family, format, response_bytes, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 200, ?)`,
+    )
+      .bind(sub.id, fingerprint, detected.family, format, new TextEncoder().encode(body).byteLength, now)
+      .run();
+  }
 
   const updateInterval = await getSettingNumber(env, "profile_update_interval_hours", 24);
   const announce = await getSettingString(env, "announce", "");
@@ -491,7 +538,6 @@ export async function serveSubscription(env: Env, request: Request, token: strin
   const headers: Record<string, string> = {
     "content-type": contentType,
     ETag: etag,
-    // plain UTF-8 title (clients like Clash/NekoBox read this header as-is)
     "Profile-Title": profileTitle,
     "Profile-Update-Interval": String(Math.max(1, Math.floor(updateInterval || 24))),
     "X-Sub-Skipped-Nodes": String(skippedCount),

@@ -1,2 +1,3 @@
-# optional override; otherwise auto-generated into D1 settings
-# CREDENTIALS_KEY=replace-with-long-random
+# optional; encrypt remote source URL/headers + SMTP password
+# if omitted, auto-generated into D1 settings.credentials_key (keep backups!)
+# CREDENTIALS_KEY=replace-with-long-random-at-least-16-chars

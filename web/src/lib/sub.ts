@@ -1,4 +1,6 @@
-﻿export type ClientLink = {
+import { qrDataUrl } from "./qrcode";
+
+export type ClientLink = {
   id: string;
   title: string;
   format: "auto" | "mihomo" | "singbox" | "uri" | "uri-base64" | "surge";
@@ -49,6 +51,8 @@ export function buildImportLinks(subUrl: string) {
   return {
     clash: "clash://install-config?url=" + enc,
     singbox: "sing-box://import-remote-profile?url=" + enc,
-    qr: "https://api.qrserver.com/v1/create-qr-code/?size=168x168&data=" + enc,
+    qr: qrDataUrl(subUrl, 168),
   };
 }
+
+export { qrDataUrl };

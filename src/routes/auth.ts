@@ -1,4 +1,4 @@
-﻿import { Hono } from "hono";
+import { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { readVars } from "../env.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../crypto/password.ts";

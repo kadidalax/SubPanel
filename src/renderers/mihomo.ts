@@ -1,4 +1,4 @@
-﻿import YAML from "yaml";
+import YAML from "yaml";
 import type { NormalizedNode } from "../parsers/types.ts";
 
 function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
@@ -104,15 +104,7 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         "ca-str": (node.extras || {}).certificate || tls.certificate,
       };
     case "naive":
-      return {
-        ...base,
-        type: "naiveproxy",
-        username: auth.username,
-        password: auth.password,
-        sni: tls.serverName,
-        "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
-        ...((node.extras || {}).quic ? { udp: true } : {}),
-      };
+      return null;
     case "wireguard":
       return {
         ...base,

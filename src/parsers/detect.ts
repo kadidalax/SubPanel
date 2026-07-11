@@ -29,6 +29,9 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
     hysteria: "hysteria",
     tuic: "tuic",
     wireguard: "wireguard",
+    anytls: "anytls",
+    naive: "naive",
+    naiveproxy: "naive",
   };
   const protocol = map[type];
   if (!protocol) return null;
@@ -101,6 +104,8 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
     hysteria: "hysteria",
     tuic: "tuic",
     wireguard: "wireguard",
+    anytls: "anytls",
+    naive: "naive",
   };
   const protocol = map[type];
   if (!protocol) return null;

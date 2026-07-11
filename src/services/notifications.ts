@@ -8,6 +8,7 @@ import {
   getSettingString,
 } from "./settings.ts";
 import { sendSmtp } from "./smtp.ts";
+import { decryptSecret } from "./credentials.ts";
 
 export type NotificationKind =
   | "password_reset"
@@ -54,6 +55,14 @@ export async function enqueueNotification(
     /* sendNotification records failure */
   }
   return id;
+}
+
+function escHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function dayKey(ts: number): string {
@@ -385,7 +394,7 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
 } {
   const footer = supportUrl ? `\n支持：${supportUrl}` : "";
   const footerHtml = supportUrl
-    ? `<p style="color:#6b7280;font-size:12px">支持：<a href="${supportUrl}">${supportUrl}</a></p>`
+    ? `<p style="color:#6b7280;font-size:12px">支持：<a href="${escHtml(supportUrl)}">${escHtml(supportUrl)}</a></p>`
     : "";
   if (kind === "user_expire" || kind === "sub_expire" || kind === "source_expire") {
     const days = payload.days;
@@ -396,7 +405,7 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p>${name} 将在 <b>${days}</b> 天后到期。</p><p>到期时间：${when}</p>${footerHtml}</div>`,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>${escHtml(name)} 将在 <b>${escHtml(days)}</b> 天后到期。</p><p>到期时间：${escHtml(when)}</p>${footerHtml}</div>`,
     };
   }
   if (kind === "traffic_warn") {
@@ -405,7 +414,7 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p>${payload.name || "订阅"} 已使用 <b>${payload.percent}%</b>。</p><p>${payload.used} / ${payload.limit} 字节</p>${footerHtml}</div>`,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>${escHtml(payload.name || "订阅")} 已使用 <b>${escHtml(payload.percent)}%</b>。</p><p>${escHtml(payload.used)} / ${escHtml(payload.limit)} 字节</p>${footerHtml}</div>`,
     };
   }
   if (kind === "auto_disable") {
@@ -414,7 +423,7 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p>已自动停用。</p><p>原因：${payload.reason}</p>${footerHtml}</div>`,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>已自动停用。</p><p>原因：${escHtml(payload.reason)}</p>${footerHtml}</div>`,
     };
   }
   if (kind === "auto_enable") {
@@ -423,31 +432,33 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p>已自动恢复。</p><p>原因：${payload.reason || "条件已解除"}</p>${footerHtml}</div>`,
-    };
-  }
-  if (kind === "source_refresh_fail") {
-    const subject = `[${site}] 数据源连续刷新失败：${payload.name}`;
-    const text = `源 #${payload.sourceId} ${payload.name} 已连续失败 ${payload.failureCount} 次。${footer}`;
-    return {
-      subject,
-      text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p>源 #${payload.sourceId} <b>${payload.name}</b> 连续失败 ${payload.failureCount} 次。</p>${footerHtml}</div>`,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>已自动恢复。</p><p>原因：${escHtml(payload.reason || "条件已解除")}</p>${footerHtml}</div>`,
     };
   }
   if (kind === "password_reset") {
     const subject = `[${site}] 密码重置`;
-    const text = `重置链接：${payload.resetUrl}${footer}`;
+    const text = `点击链接重置密码：${payload.resetUrl}${footer}`;
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${site}</h2><p><a href="${payload.resetUrl}">重置密码</a></p>${footerHtml}</div>`,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p><a href="${escHtml(payload.resetUrl)}">重置密码</a></p>${footerHtml}</div>`,
     };
   }
+  if (kind === "source_refresh_fail") {
+    const subject = `[${site}] 远程源刷新失败：${payload.name || payload.sourceId}`;
+    const text = `源 #${payload.sourceId} ${payload.name || ""} 连续失败 ${payload.failureCount} 次。${footer}`;
+    return {
+      subject,
+      text,
+      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>源 #${escHtml(payload.sourceId)} ${escHtml(payload.name || "")} 连续失败 <b>${escHtml(payload.failureCount)}</b> 次。</p>${footerHtml}</div>`,
+    };
+  }
+  const subject = `[${site}] 通知`;
+  const text = JSON.stringify(payload) + footer;
   return {
-    subject: `[${site}] 通知`,
-    text: JSON.stringify(payload) + footer,
-    html: `<pre>${JSON.stringify(payload)}</pre>${footerHtml}`,
+    subject,
+    text,
+    html: `<div style="font-family:system-ui,sans-serif"><h2>${escHtml(site)}</h2><pre>${escHtml(JSON.stringify(payload, null, 2))}</pre>${footerHtml}</div>`,
   };
 }
 
@@ -497,7 +508,8 @@ export async function sendNotification(env: Env, notificationId: number): Promis
     const secureRaw = await getSettingRaw(env, "smtp_secure");
     const secure = secureRaw == null ? port === 465 : await getSettingBool(env, "smtp_secure", port === 465);
     const user = (await getSettingString(env, "smtp_user", "")).trim();
-    const pass = (await getSettingString(env, "smtp_pass", "")).trim();
+    const passRaw = (await getSettingString(env, "smtp_pass", "")).trim();
+    const pass = (await decryptSecret(env, passRaw)).trim();
     if (!host) throw new Error("SMTP 未配置：请在设置中填写 smtp_host");
     await sendSmtp(
       { host, port: Number.isFinite(port) ? port : 465, secure, user: user || undefined, pass: pass || undefined, from },
