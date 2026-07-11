@@ -30,11 +30,50 @@ export function GroupsPage() {
     load().catch((e) => setError(e.message));
   }, []);
 
+  const protocols = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of nodes) {
+      const p = String(n.protocol || "").trim();
+      if (p) set.add(p);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [nodes]);
+
+  const sources = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const n of nodes) {
+      const id = Number(n.source_id);
+      if (!Number.isFinite(id)) continue;
+      if (!map.has(id)) map.set(id, String(n.source_name || ("#" + id)));
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.id - b.id);
+  }, [nodes]);
+
   const filteredNodes = useMemo(() => {
-    if (!q) return nodes;
-    const k = q.toLowerCase();
-    return nodes.filter((n) => (n.name + " " + n.protocol + " " + n.id).toLowerCase().includes(k));
-  }, [nodes, q]);
+    const k = q.trim().toLowerCase();
+    return nodes.filter((n) => {
+      if (protocolFilter !== "all" && String(n.protocol || "") !== protocolFilter) return false;
+      if (sourceFilter !== "all" && Number(n.source_id) !== Number(sourceFilter)) return false;
+      if (groupFilter !== "all") {
+        const ids: number[] = Array.isArray(n.groupIds)
+          ? n.groupIds.map(Number)
+          : Array.isArray(n.groups)
+            ? n.groups.map((x: any) => Number(x.id))
+            : [];
+        if (groupFilter === "0") {
+          if (ids.length) return false;
+        } else if (!ids.includes(Number(groupFilter))) {
+          return false;
+        }
+      }
+      if (!k) return true;
+      const groupNames = Array.isArray(n.groups) ? n.groups.map((x: any) => x.name).join(" ") : "";
+      const hay = (n.name + " " + n.protocol + " " + n.source_name + " " + groupNames + " " + n.id).toLowerCase();
+      return hay.includes(k);
+    });
+  }, [nodes, q, protocolFilter, sourceFilter, groupFilter]);
 
   const filteredNodeIds = filteredNodes.map((n) => n.id as number);
 
@@ -43,6 +82,9 @@ export function GroupsPage() {
     setName("default");
     nodeSel.clear();
     setQ("");
+    setProtocolFilter("all");
+    setSourceFilter("all");
+    setGroupFilter("all");
     setOpenEditor(true);
   }
 
@@ -54,6 +96,9 @@ export function GroupsPage() {
       setName(res.group?.name || "");
       nodeSel.set((res.nodeIds || []).map(Number));
       setQ("");
+      setProtocolFilter("all");
+      setSourceFilter("all");
+      setGroupFilter("all");
       setOpenEditor(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载分组失败");
@@ -226,7 +271,7 @@ export function GroupsPage() {
         footer={
           <>
             <button type="button" className="btn secondary" onClick={() => setOpenEditor(false)}>取消</button>
-            <button form="group-form" className="btn btn-save-count" disabled={!nodeSel.count || busy}>{busy ? "保存中..." : `保存（${nodeSel.count}）`}</button>
+            <button form="group-form" className="btn btn-save-count" disabled={busy}>{busy ? "保存中..." : `保存（${nodeSel.count}）`}</button>
           </>
         }
       >
@@ -236,7 +281,26 @@ export function GroupsPage() {
             <label>选择节点</label>
             <div className="list-toolbar modal-list-toolbar" style={{ marginBottom: 8 }}>
               <div className="list-toolbar-left">
-                <input className="input" style={{ maxWidth: 240 }} placeholder="过滤节点 / emoji" value={q} onChange={(e) => setQ(e.target.value)} />
+                <input className="input filter-search" placeholder="搜索" value={q} onChange={(e) => setQ(e.target.value)} />
+                <select className="input filter-select" value={protocolFilter} onChange={(e) => setProtocolFilter(e.target.value)} title="节点类型">
+                  <option value="all">全部类型</option>
+                  {protocols.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <select className="input filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} title="数据来源">
+                  <option value="all">全部来源</option>
+                  {sources.map((s) => (
+                    <option key={s.id} value={String(s.id)}>{s.name}</option>
+                  ))}
+                </select>
+                <select className="input filter-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} title="所属分组">
+                  <option value="all">全部分组</option>
+                  <option value="0">未分组</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={String(g.id)}>{g.name}</option>
+                  ))}
+                </select>
                 <span className="muted">可见 {filteredNodes.length}</span>
               </div>
               <div className="list-toolbar-right">
@@ -250,10 +314,13 @@ export function GroupsPage() {
               {filteredNodes.map((n) => (
                 <label key={n.id} className="check-item">
                   <input type="checkbox" checked={nodeSel.has(n.id)} onChange={() => nodeSel.toggle(n.id)} />
-                  <span className="emoji-safe">#{n.id} {n.name} <span className="muted">({n.protocol})</span></span>
+                  <span className="emoji-safe">
+                    #{n.id} {n.name}{" "}
+                    <span className="muted">({n.protocol} · {n.source_name || "—"})</span>
+                  </span>
                 </label>
               ))}
-              {!filteredNodes.length ? <div className="muted">暂无可用节点，先去数据源导入</div> : null}
+              {!filteredNodes.length ? <div className="muted">暂无匹配节点，调整筛选或先去数据源导入</div> : null}
             </div>
           </div>
         </form>

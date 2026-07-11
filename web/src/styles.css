@@ -1315,6 +1315,20 @@ html {
   justify-content: center;
 }
 .modal-list-toolbar {
+  height: auto !important;
+  min-height: 36px !important;
+  max-height: none !important;
+  flex-wrap: wrap !important;
+  overflow: visible !important;
+}
+.modal-list-toolbar .list-toolbar-left {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.modal-list-toolbar .filter-select {
+  max-width: 8.5em;
+}
+.modal-list-toolbar {
   height: 36px !important;
   min-height: 36px !important;
   max-height: 36px !important;
