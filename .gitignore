@@ -21,3 +21,9 @@ scripts/
 tsconfig.test.json
 docs/
 Passwall-Sub-Panel-main/
+# local notes / audits (do not ship)
+AUDIT.md
+SECURITY.md
+*.audit.md
+tools/
+spec.md
