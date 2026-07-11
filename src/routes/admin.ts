@@ -399,7 +399,9 @@ adminRoutes.post("/groups", async (c) => {
   if ("error" in gate) return gate.error;
   const body = (await c.req.json().catch(() => null)) as any;
   const id = await createGroup(c.env, String(body?.name || "default"), body?.description);
-  if (Array.isArray(body?.nodeIds)) await setGroupNodes(c.env, id, body.nodeIds.map(Number));
+  // allow empty group: always write node set (may be [])
+  const nodeIds = Array.isArray(body?.nodeIds) ? body.nodeIds.map(Number).filter((n: number) => Number.isFinite(n) && n > 0) : [];
+  await setGroupNodes(c.env, id, nodeIds);
   await writeAudit(c.env.DB, {
     ...auditBase(c, gate.auth),
     action: "group.create",

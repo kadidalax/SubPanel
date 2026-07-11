@@ -67,10 +67,10 @@ export function GroupsPage() {
     try {
       if (editId == null) {
         const res = await api.post<any>("/api/admin/groups", { name, nodeIds: nodeSel.selected });
-        setMsg("分组 #" + res.id + " 已创建，节点 " + nodeSel.count);
+        setMsg("分组 #" + res.id + " 已创建" + (nodeSel.count ? "，节点 " + nodeSel.count : "（空分组，可稍后加节点）"));
       } else {
         await api.put("/api/admin/groups/" + editId, { name, nodeIds: nodeSel.selected });
-        setMsg("分组 #" + editId + " 已更新，节点 " + nodeSel.count);
+        setMsg("分组 #" + editId + " 已更新" + (nodeSel.count ? "，节点 " + nodeSel.count : "（空分组）"));
       }
       setOpenEditor(false);
       nodeSel.clear();
@@ -115,7 +115,7 @@ export function GroupsPage() {
     <>
       <PageHeader
         title="分组"
-        sub="从节点池勾选生成订阅内容池，可预览多格式输出与 skip 原因。"
+        sub="可先建空分组，之后再勾选节点；也可预览多格式输出与 skip 原因。"
         steps={["数据源", "节点池", "分组", "订阅入口"]}
         actions={
           <>
@@ -159,7 +159,7 @@ export function GroupsPage() {
           </div>
 
           {!groups.length ? (
-            <EmptyState title="还没有分组" desc="从节点池勾选生成分组，再创建订阅入口。" action={<button className="btn" onClick={openCreate}>新建分组</button>} />
+            <EmptyState title="还没有分组" desc="可先建空分组，后续再加节点并创建订阅入口。" action={<button className="btn" onClick={openCreate}>新建分组</button>} />
           ) : (
             <table>
               <thead>
@@ -220,7 +220,7 @@ export function GroupsPage() {
       <Modal
         open={openEditor}
         title={editId == null ? "新建分组" : `编辑分组 #${editId}`}
-        description="支持批量勾选节点。勾选顺序=排序。支持 emoji 节点名。"
+        description="可不选节点直接创建空分组。勾选顺序=排序。支持 emoji 节点名。"
         onClose={() => setOpenEditor(false)}
         wide
         footer={

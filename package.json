@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "postinstall": "npm --prefix web install --include=dev",
     "dev": "wrangler dev",
-    "build": "npm run build:web && wrangler deploy --dry-run --outdir=dist",
+    "build": "npm run build:web",
     "build:web": "npm --prefix web run build",
     "deploy": "npm run build:web && wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
