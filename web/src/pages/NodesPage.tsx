@@ -127,15 +127,13 @@ export function NodesPage() {
         <div className="list-toolbar">
           <div className="list-toolbar-left">
             <input
-              className="input"
-              style={{ maxWidth: 220 }}
-              placeholder="搜索名称/协议/来源/分组"
+              className="input filter-search"
+              placeholder="搜索"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
             <select
-              className="input"
-              style={{ width: 140 }}
+              className="input filter-select"
               value={protocol}
               onChange={(e) => setProtocol(e.target.value)}
               title="节点类型"
@@ -146,8 +144,7 @@ export function NodesPage() {
               ))}
             </select>
             <select
-              className="input"
-              style={{ width: 160 }}
+              className="input filter-select"
               value={sourceId}
               onChange={(e) => setSourceId(e.target.value)}
               title="数据来源"
@@ -158,8 +155,7 @@ export function NodesPage() {
               ))}
             </select>
             <select
-              className="input"
-              style={{ width: 160 }}
+              className="input filter-select"
               value={groupId}
               onChange={(e) => setGroupId(e.target.value)}
               title="所属分组"

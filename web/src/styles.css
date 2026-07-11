@@ -1017,6 +1017,38 @@ html {
   align-items: center;
   box-sizing: border-box;
 }
+.list-toolbar-left .filter-search {
+  width: 120px;
+  max-width: 120px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+.list-toolbar-left .filter-select {
+  width: auto;
+  max-width: 9.5em;
+  min-width: 0;
+  height: 30px;
+  padding: 0 22px 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  field-sizing: content;
+}
+.list-toolbar-left .check-item {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+.list-toolbar-left .muted {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
 .flow-steps {
   display: flex;
   flex-wrap: wrap;
