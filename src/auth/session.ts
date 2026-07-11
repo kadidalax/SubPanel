@@ -21,7 +21,12 @@ export function parseCookies(header: string | null): Record<string, string> {
     if (idx < 0) continue;
     const k = part.slice(0, idx).trim();
     const v = part.slice(idx + 1).trim();
-    if (k) out[k] = decodeURIComponent(v);
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      // invalid percent-encoding — skip cookie
+    }
   }
   return out;
 }
@@ -94,4 +99,3 @@ export function publicUser(user: UserRow) {
     createdAt: user.created_at,
   };
 }
-

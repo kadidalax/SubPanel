@@ -12,18 +12,45 @@ import { jsonError } from "./util/json.ts";
 type AppEnv = { Bindings: Env };
 const app = new Hono<AppEnv>();
 
+function redactPath(pathname: string): string {
+  if (pathname.startsWith("/sub/")) {
+    const rest = pathname.slice(5);
+    const token = rest.split("/")[0] || "";
+    if (!token) return "/sub/";
+    const prefix = token.slice(0, 8);
+    return "/sub/" + prefix + "/[redacted]";
+  }
+  return pathname;
+}
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "content-security-policy":
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:",
+};
+
 app.use("*", async (c, next) => {
   const requestId = getRequestId(c.req.raw);
   c.header("x-request-id", requestId);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) c.header(k, v);
   const started = Date.now();
   await next();
-  console.log(JSON.stringify({
-    request_id: requestId,
-    method: c.req.method,
-    path: new URL(c.req.url).pathname,
-    status: c.res.status,
-    duration_ms: Date.now() - started,
-  }));
+  // re-apply after handler Response creation (Hono may replace headers)
+  c.header("x-request-id", requestId);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) c.header(k, v);
+  const path = redactPath(new URL(c.req.url).pathname);
+  console.log(
+    JSON.stringify({
+      request_id: requestId,
+      method: c.req.method,
+      path,
+      status: c.res.status,
+      duration_ms: Date.now() - started,
+    }),
+  );
 });
 
 app.route("/health", healthRoutes);

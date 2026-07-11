@@ -9,6 +9,7 @@ import {
 } from "./settings.ts";
 import { sendSmtp } from "./smtp.ts";
 import { decryptSecret } from "./credentials.ts";
+import { safeResetHref, safeSupportHref } from "../util/safe_href.ts";
 
 export type NotificationKind =
   | "password_reset"
@@ -392,9 +393,10 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
   text: string;
   html: string;
 } {
-  const footer = supportUrl ? `\n支持：${supportUrl}` : "";
-  const footerHtml = supportUrl
-    ? `<p style="color:#6b7280;font-size:12px">支持：<a href="${escHtml(supportUrl)}">${escHtml(supportUrl)}</a></p>`
+  const safeSupport = safeSupportHref(supportUrl);
+  const footer = safeSupport ? `\n支持：${safeSupport}` : "";
+  const footerHtml = safeSupport
+    ? `<p style="color:#6b7280;font-size:12px">支持：<a href="${escHtml(safeSupport)}">${escHtml(safeSupport)}</a></p>`
     : "";
   if (kind === "user_expire" || kind === "sub_expire" || kind === "source_expire") {
     const days = payload.days;
@@ -436,12 +438,15 @@ function renderMail(kind: string, payload: Record<string, any>, site: string, su
     };
   }
   if (kind === "password_reset") {
+    const resetUrl = safeResetHref(payload.resetUrl);
     const subject = `[${site}] 密码重置`;
-    const text = `点击链接重置密码：${payload.resetUrl}${footer}`;
+    const text = resetUrl ? `点击链接重置密码：${resetUrl}${footer}` : `请使用面板重置密码。${footer}`;
     return {
       subject,
       text,
-      html: `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p><a href="${escHtml(payload.resetUrl)}">重置密码</a></p>${footerHtml}</div>`,
+      html: resetUrl
+        ? `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p><a href="${escHtml(resetUrl)}">重置密码</a></p>${footerHtml}</div>`
+        : `<div style="font-family:system-ui,sans-serif"><h2 style="margin:0 0 12px">${escHtml(site)}</h2><p>请使用面板重置密码。</p>${footerHtml}</div>`,
     };
   }
   if (kind === "source_refresh_fail") {
@@ -478,6 +483,17 @@ export async function sendNotification(env: Env, notificationId: number): Promis
     .run();
 
   const payload = JSON.parse(row.payload_json || "{}") as Record<string, any>;
+  if (row.kind === "password_reset" && payload.resetTokenEnc && !payload.resetUrl) {
+    try {
+      const raw = await decryptSecret(env, String(payload.resetTokenEnc));
+      const origin = String(payload.origin || "").replace(/\/$/, "");
+      if (raw && (origin.startsWith("https://") || origin.startsWith("http://"))) {
+        payload.resetUrl = origin + "/?reset_token=" + encodeURIComponent(raw);
+      }
+    } catch {
+      /* leave without url */
+    }
+  }
   const to = String(payload.email || "");
   if (!to) {
     await env.DB.prepare(
@@ -515,11 +531,21 @@ export async function sendNotification(env: Env, notificationId: number): Promis
       { host, port: Number.isFinite(port) ? port : 465, secure, user: user || undefined, pass: pass || undefined, from },
       { to, subject: mail.subject, text: mail.text, html: mail.html, fromName: site },
     );
-    await env.DB.prepare(
-      "UPDATE notifications SET status = 'sent', sent_at = ?, last_error = NULL WHERE id = ?",
-    )
-      .bind(now, notificationId)
-      .run();
+    // scrub one-shot secrets from payload after successful send
+    if (row.kind === "password_reset") {
+      const scrubbed = { email: payload.email, tokenPrefix: payload.tokenPrefix || null, sent: true };
+      await env.DB.prepare(
+        "UPDATE notifications SET status = 'sent', sent_at = ?, last_error = NULL, payload_json = ? WHERE id = ?",
+      )
+        .bind(now, JSON.stringify(scrubbed), notificationId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        "UPDATE notifications SET status = 'sent', sent_at = ?, last_error = NULL WHERE id = ?",
+      )
+        .bind(now, notificationId)
+        .run();
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await env.DB.prepare(

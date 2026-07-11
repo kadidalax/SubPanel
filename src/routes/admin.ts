@@ -6,6 +6,8 @@ import { sameOrigin, getClientIp, getRequestId } from "../util/request.ts";
 import { writeAudit } from "../db/audit.ts";
 import { createUser, listUsers, setUserEnabled } from "../db/users.ts";
 import { hashPassword } from "../crypto/password.ts";
+import { assertPassword } from "../util/password_policy.ts";
+import { safeSupportHref } from "../util/safe_href.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
 import {
@@ -108,7 +110,10 @@ adminRoutes.post("/users", async (c) => {
   const password = String(body.password || "");
   const email = body.email ? String(body.email).trim() : null;
   const role = "user";
-  if (!username || password.length < 10) return jsonError(400, "invalid", "username and password(>=10) required");
+  if (!username) return jsonError(400, "invalid", "username and password(>=10) required");
+  try { assertPassword(password); } catch (e) {
+    return jsonError(400, "invalid", e instanceof Error ? e.message : "invalid password");
+  }
   const vars = readVars(c.env);
   const passwordHash = await hashPassword(password, vars.passwordIterations);
   const now = nowMs();
@@ -136,6 +141,15 @@ adminRoutes.post("/users/:id/enabled", async (c) => {
   const body = (await c.req.json().catch(() => null)) as any;
   const enabled = Boolean(body?.enabled);
   const now = nowMs();
+  if (!enabled) {
+    const target = await c.env.DB.prepare("SELECT id, role, enabled FROM users WHERE id = ? LIMIT 1").bind(id).first<any>();
+    if (target && target.role === "admin") {
+      const admins = await c.env.DB.prepare(
+        "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND enabled = 1 AND id != ?",
+      ).bind(id).first<{ c: number }>();
+      if ((admins?.c ?? 0) < 1) return jsonError(400, "last_admin", "cannot disable the last admin");
+    }
+  }
   await setUserEnabled(c.env.DB, id, enabled, now);
   await c.env.DB.prepare(
     "UPDATE users SET disabled_reason = ?, updated_at = ? WHERE id = ?",
@@ -167,7 +181,9 @@ adminRoutes.put("/users/:id", async (c) => {
       .run();
   }
   if (body?.password) {
-    if (String(body.password).length < 10) return jsonError(400, "invalid_request", "password too short");
+    try { assertPassword(String(body.password)); } catch (e) {
+      return jsonError(400, "invalid_request", e instanceof Error ? e.message : "invalid password");
+    }
     const vars = readVars(c.env);
     await c.env.DB.prepare(
       "UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = ? WHERE id = ?",
@@ -847,6 +863,17 @@ adminRoutes.post("/logs/clear", async (c) => {
     const r = await c.env.DB.prepare(sql).run();
     deleted += Number((r as any).meta?.changes || 0);
   };
+  // durable clear marker (settings) survives audit wipe
+  const marker = {
+    at: nowMs(),
+    by: gate.auth.user.id,
+    tab,
+  };
+  await c.env.DB.prepare(
+    "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+  )
+    .bind("logs_last_clear", JSON.stringify(marker), marker.at)
+    .run();
   if (tab === "audit" || tab === "all") await run("DELETE FROM audit_logs");
   if (tab === "access" || tab === "all") await run("DELETE FROM subscription_access_logs");
   if (tab === "notifications" || tab === "all") await run("DELETE FROM notifications");
@@ -856,7 +883,7 @@ adminRoutes.post("/logs/clear", async (c) => {
     action: "logs.clear",
     targetType: "logs",
     targetId: tab,
-    after: { deleted },
+    after: { deleted, durable: marker },
   });
   return jsonOk({ ok: true, tab, deleted });
 });
@@ -933,7 +960,9 @@ adminRoutes.get("/settings", async (c) => {
   if ("error" in gate) return gate.error;
   const res = await c.env.DB.prepare("SELECT key, value_json FROM settings").all<{ key: string; value_json: string }>();
   const settings: Record<string, unknown> = {};
+  const deny = new Set(["credentials_key", "initialized"]);
   for (const row of res.results ?? []) {
+    if (deny.has(row.key) || /(_key|_secret|_token)$/i.test(row.key)) continue;
     try {
       settings[row.key] = JSON.parse(row.value_json);
     } catch {
@@ -942,6 +971,7 @@ adminRoutes.get("/settings", async (c) => {
   }
   if (settings.smtp_pass) settings.smtp_pass_set = true;
   if ("smtp_pass" in settings) settings.smtp_pass = "";
+  settings.credentials_key_configured = Boolean((c.env.CREDENTIALS_KEY || "").trim().length >= 16);
   return jsonOk({ settings });
 });
 
@@ -974,6 +1004,16 @@ adminRoutes.put("/settings", async (c) => {
     if (key === "smtp_pass" && (value == null || String(value) === "")) continue;
     let store: unknown = value;
     if (key === "smtp_pass") store = await encryptSecret(c.env, String(value));
+    if (key === "support_url") {
+      const safe = safeSupportHref(value);
+      if (String(value || "").trim() && !safe) return jsonError(400, "invalid_support_url", "support_url must be https or mailto");
+      store = safe;
+    }
+    if (key === "smtp_port") {
+      const p = Number(value);
+      if (![25, 465, 587, 2525].includes(p)) return jsonError(400, "invalid_smtp_port", "smtp port not allowed");
+      store = p;
+    }
     await c.env.DB.prepare(
       "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
     )

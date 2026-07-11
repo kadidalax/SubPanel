@@ -1,4 +1,5 @@
 import { base64Url, fromBase64Url } from '../util/ids.ts';
+import { PASSWORD_MAX } from '../util/password_policy.ts';
 
 const PREFIX = 'pbkdf2-sha256';
 

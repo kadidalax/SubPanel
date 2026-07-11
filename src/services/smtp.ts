@@ -1,5 +1,6 @@
 // Minimal SMTP client for Workers (cloudflare:sockets). Supports 465 TLS and 587 STARTTLS.
 import { connect } from "cloudflare:sockets";
+import { assertSafeOutboundHost } from "./ssrf.ts";
 
 export type SmtpConfig = {
   host: string;
@@ -131,6 +132,7 @@ async function authAndSend(
 export async function sendSmtp(cfg: SmtpConfig, mail: SmtpMail): Promise<void> {
   if (!cfg.host || !cfg.from || !mail.to) throw new Error("SMTP host/from/to required");
   const port = cfg.port || (cfg.secure ? 465 : 587);
+  assertSafeOutboundHost(cfg.host, Number(port), [25, 465, 587, 2525]);
   const socket = connect(
     { hostname: cfg.host, port },
     { secureTransport: cfg.secure ? "on" : "starttls", allowHalfOpen: false },

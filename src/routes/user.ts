@@ -5,6 +5,7 @@ import { jsonError, jsonOk } from "../util/json.ts";
 import { sameOrigin, getClientIp, getRequestId } from "../util/request.ts";
 import { writeAudit } from "../db/audit.ts";
 import { hashPassword, verifyPassword } from "../crypto/password.ts";
+import { assertPassword } from "../util/password_policy.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
 import { getSubscriptionRow, rotateSubscriptionToken } from "../services/subscriptions.ts";
@@ -127,11 +128,14 @@ userRoutes.get("/subscriptions/:id/nodes", async (c) => {
     } catch {
       /* ignore */
     }
+    const maskedServer = server
+      ? (server.length <= 4 ? "***" : server.slice(0, 2) + "***" + server.slice(-2))
+      : "";
     return {
       id: Number(row.id),
       name: row.name,
       protocol: row.protocol,
-      server,
+      server: maskedServer,
       port,
       enabled: Number(row.enabled) === 1,
       stale: Number(row.stale) === 1,
@@ -146,7 +150,9 @@ userRoutes.put("/password", async (c) => {
   const body = (await c.req.json().catch(() => null)) as any;
   const current = String(body?.currentPassword || "");
   const next = String(body?.newPassword || "");
-  if (next.length < 10) return jsonError(400, "invalid_request", "password too short");
+  try { assertPassword(next); } catch (e) {
+    return jsonError(400, "invalid_request", e instanceof Error ? e.message : "invalid password");
+  }
   const row = await c.env.DB.prepare("SELECT password_hash FROM users WHERE id = ?")
     .bind(gate.auth.user.id)
     .first<{ password_hash: string }>();

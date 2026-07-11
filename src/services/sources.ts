@@ -4,7 +4,7 @@ import { nowMs } from "../util/time.ts";
 import { parseSubscriptionText } from "../parsers/detect.ts";
 import type { NormalizedNode, OutputFormat } from "../parsers/types.ts";
 import { nodeKey } from "../parsers/node_key.ts";
-import { fetchRemoteSubscription, parseUserinfo } from "./ssrf.ts";
+import { assertSafeRemoteUrl, fetchRemoteSubscription, parseUserinfo, sanitizeRemoteHeaders } from "./ssrf.ts";
 import { credentialsKey } from "./credentials.ts";
 
 export type SourceDiff = {
@@ -63,8 +63,10 @@ export async function createRemoteSource(
 ): Promise<{ id: number; nodeCount: number; warnings: unknown[]; revision: number; diff: SourceDiff }> {
   const key = await credentialsKey(env);
   const now = nowMs();
+  assertSafeRemoteUrl(input.url);
+  const headers = sanitizeRemoteHeaders(input.headers || {});
   const encryptedUrl = await encryptText(key, input.url);
-  const encryptedHeaders = await encryptText(key, JSON.stringify(input.headers || {}));
+  const encryptedHeaders = await encryptText(key, JSON.stringify(headers));
   const interval = Math.max(5, Number(input.refreshIntervalMinutes || 60));
   const res = await env.DB.prepare(
     `INSERT INTO sources
@@ -286,8 +288,13 @@ export async function updateSource(
 
   if (row.kind === "remote") {
     const key = await credentialsKey(env);
-    if (patch.url) encryptedUrl = await encryptText(key, patch.url);
-    if (patch.headers) encryptedHeaders = await encryptText(key, JSON.stringify(patch.headers));
+    if (patch.url) {
+      assertSafeRemoteUrl(String(patch.url));
+      encryptedUrl = await encryptText(key, patch.url);
+    }
+    if (patch.headers) {
+      encryptedHeaders = await encryptText(key, JSON.stringify(sanitizeRemoteHeaders(patch.headers)));
+    }
   }
   if (row.kind === "manual" && patch.manualContent != null) {
     manualContent = patch.manualContent;
