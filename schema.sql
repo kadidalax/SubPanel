@@ -153,6 +153,15 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_group_id ON subscriptions(group_id);
 
+CREATE TABLE IF NOT EXISTS subscription_groups (
+  subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subscription_id, group_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscription_groups_group ON subscription_groups(group_id);
+
 CREATE TABLE IF NOT EXISTS subscription_devices (
   subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
   fingerprint TEXT NOT NULL,

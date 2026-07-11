@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "../crypto/password.ts";
 import { assertPassword } from "../util/password_policy.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
-import { getSubscriptionRow, revealSubscriptionToken, rotateSubscriptionToken } from "../services/subscriptions.ts";
+import { getSubscriptionRow, listSubscriptionGroups, loadSubscriptionNodeMeta, revealSubscriptionToken, rotateSubscriptionToken } from "../services/subscriptions.ts";
 import { buildSubscriptionHealth } from "../services/health.ts";
 
 type AppEnv = { Bindings: Env };
@@ -47,10 +47,14 @@ userRoutes.get("/subscriptions", async (c) => {
   const subscriptions = [];
   for (const row of rows) {
     const health = await buildSubscriptionHealth(c.env, row);
+    const groups = await listSubscriptionGroups(c.env, Number(row.id));
     subscriptions.push({
       id: row.id,
       name: row.name,
       tokenPrefix: row.token_prefix,
+      groupIds: groups.map((g) => g.id),
+      groups,
+      groupNames: groups.map((g) => g.name).join(", "),
       enabled: row.enabled === 1,
       expireAt: row.expire_at,
       deviceLimit: row.device_limit,
@@ -124,16 +128,8 @@ userRoutes.get("/subscriptions/:id/nodes", async (c) => {
   if (!sub || Number(sub.user_id) !== gate.auth.user.id) {
     return jsonError(404, "not_found", "subscription not found");
   }
-  const res = await c.env.DB.prepare(
-    `SELECT sn.id AS id, sn.protocol AS protocol, sn.name AS name, sn.normalized_json AS normalized_json, sn.enabled AS enabled, sn.stale AS stale
-     FROM group_nodes gn
-     JOIN source_nodes sn ON sn.id = gn.node_id
-     WHERE gn.group_id = ? AND gn.enabled = 1
-     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
-  )
-    .bind(sub.group_id)
-    .all<any>();
-  const nodes = (res.results ?? []).map((row) => {
+  const meta = await loadSubscriptionNodeMeta(c.env, id, Number(sub.group_id));
+  const nodes = meta.map((row) => {
     let server = "";
     let port: number | null = null;
     try {
@@ -156,7 +152,8 @@ userRoutes.get("/subscriptions/:id/nodes", async (c) => {
       stale: Number(row.stale) === 1,
     };
   });
-  return jsonOk({ nodes, groupId: sub.group_id });
+  const groups = await listSubscriptionGroups(c.env, id);
+  return jsonOk({ nodes, groupId: groups[0]?.id ?? sub.group_id, groupIds: groups.map((g) => g.id), groups });
 });
 
 userRoutes.put("/password", async (c) => {

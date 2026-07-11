@@ -45,6 +45,7 @@ import {
   batchDeleteGroups,
   updateGroup,
   getGroupNodes,
+  listSubscriptionGroups,
 } from "../services/subscriptions.ts";
 import { buildSubscriptionHealth } from "../services/health.ts";
 import { sendNotification } from "../services/notifications.ts";
@@ -484,9 +485,13 @@ adminRoutes.post("/subscriptions", async (c) => {
   if ("error" in gate) return gate.error;
   const body = (await c.req.json().catch(() => null)) as any;
   try {
+    const groupIds = Array.isArray(body?.groupIds)
+      ? body.groupIds.map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+      : (body?.groupId != null ? [Number(body.groupId)] : []);
     const created = await createSubscription(c.env, {
       userId: Number(body?.userId),
-      groupId: Number(body?.groupId),
+      groupIds,
+      groupId: groupIds[0],
       name: String(body?.name || "default"),
       defaultFormat: body?.defaultFormat || "auto",
       deviceLimit: body?.deviceLimit ?? null,
@@ -523,14 +528,17 @@ adminRoutes.get("/subscriptions/:id", async (c) => {
   const health = await buildSubscriptionHealth(c.env, row);
   const devices = await listSubscriptionDevices(c.env, id);
   const recentAccess = await listRecentAccess(c.env, id, 20);
+  const groups = await listSubscriptionGroups(c.env, id);
   return jsonOk({
     subscription: {
       id: row.id,
       userId: row.user_id,
       username: row.username,
       userEmail: row.user_email,
-      groupId: row.group_id,
-      groupName: row.group_name,
+      groupId: groups[0]?.id ?? row.group_id,
+      groupName: groups.map((g) => g.name).join(" + ") || row.group_name,
+      groupIds: groups.map((g) => g.id),
+      groups,
       name: row.name,
       tokenPrefix: row.token_prefix,
       enabled: row.enabled === 1,
@@ -565,8 +573,12 @@ adminRoutes.put("/subscriptions/:id", async (c) => {
   if ("error" in gate) return gate.error;
   const body = (await c.req.json().catch(() => null)) as any;
   try {
+    const groupIds = Array.isArray(body?.groupIds)
+      ? body.groupIds.map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
+      : undefined;
     await updateSubscription(c.env, Number(c.req.param("id")), {
       name: body?.name,
+      groupIds,
       groupId: body?.groupId == null ? undefined : Number(body.groupId),
       enabled: body?.enabled,
       expireAt: body?.expireAt,
@@ -675,8 +687,20 @@ adminRoutes.get("/subscriptions", async (c) => {
             s.disabled_reason, s.revision, s.created_at, u.username
      FROM subscriptions s JOIN users u ON u.id = s.user_id
      ORDER BY s.id DESC`,
-  ).all();
-  return jsonOk({ subscriptions: res.results ?? [] });
+  ).all<any>();
+  const rows = res.results ?? [];
+  const subscriptions = [];
+  for (const row of rows) {
+    const groups = await listSubscriptionGroups(c.env, Number(row.id));
+    subscriptions.push({
+      ...row,
+      group_id: groups[0]?.id ?? row.group_id,
+      groupIds: groups.map((g) => g.id),
+      groups,
+      groupNames: groups.map((g) => g.name).join(", "),
+    });
+  }
+  return jsonOk({ subscriptions });
 });
 
 adminRoutes.get("/nodes", async (c) => {

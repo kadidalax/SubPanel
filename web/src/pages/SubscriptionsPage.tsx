@@ -22,7 +22,7 @@ export function SubscriptionsPage() {
   const sel = useSelection<number>();
 
   const [userId, setUserId] = useState("");
-  const [groupId, setGroupId] = useState("");
+  const [groupIds, setGroupIds] = useState<number[]>([]);
   const [name, setName] = useState("default");
   const [deviceLimit, setDeviceLimit] = useState("2");
   const [usageMode, setUsageMode] = useState("none");
@@ -43,7 +43,7 @@ export function SubscriptionsPage() {
     setGroups(g.groups || []);
     setSources(src.sources || []);
     if (!userId && u.users?.[0]) setUserId(String(u.users[0].id));
-    if (!groupId && g.groups?.[0]) setGroupId(String(g.groups[0].id));
+    if (!groupIds.length && g.groups?.[0]) setGroupIds([Number(g.groups[0].id)]);
   }
 
   useEffect(() => {
@@ -53,6 +53,7 @@ export function SubscriptionsPage() {
   function openCreateModal() {
     setEditId(null);
     setName("default");
+    setGroupIds(groups[0] ? [Number(groups[0].id)] : []);
     setDeviceLimit("2");
     setUsageMode("none");
     setTrafficLimit("");
@@ -65,7 +66,10 @@ export function SubscriptionsPage() {
   function openEdit(row: any) {
     setEditId(row.id);
     setUserId(String(row.user_id || row.userId || ""));
-    setGroupId(String(row.group_id || row.groupId || ""));
+    const ids = Array.isArray(row.groupIds) && row.groupIds.length
+      ? row.groupIds.map(Number).filter((n: number) => n > 0)
+      : (row.group_id || row.groupId ? [Number(row.group_id || row.groupId)] : []);
+    setGroupIds(ids);
     setName(row.name || "default");
     setDeviceLimit(row.device_limit == null ? "" : String(row.device_limit));
     setUsageMode(row.usage_mode || "none");
@@ -86,7 +90,8 @@ export function SubscriptionsPage() {
       if (editId != null) {
         await api.put("/api/admin/subscriptions/" + editId, {
           name,
-          groupId: Number(groupId),
+          groupIds,
+          groupId: groupIds[0],
           deviceLimit: deviceLimit ? Number(deviceLimit) : null,
           usageMode,
           trafficLimitBytes: gbToBytes(trafficLimit),
@@ -98,7 +103,8 @@ export function SubscriptionsPage() {
       } else {
         const res = await api.post<any>("/api/admin/subscriptions", {
           userId: Number(userId),
-          groupId: Number(groupId),
+          groupIds,
+          groupId: groupIds[0],
           name,
           deviceLimit: deviceLimit ? Number(deviceLimit) : null,
           usageMode,
@@ -248,7 +254,7 @@ export function SubscriptionsPage() {
       {createdToken ? (
         <div className="card">
           <div className="section-head">
-            <h3 className="section-title">Token / 链接（只显示一次）</h3>
+            <h3 className="section-title">Token / 链接（可重复复制）</h3>
             {createdId ? <Link className="btn secondary sm" to={`/subscriptions/${createdId}`}>打开详情</Link> : null}
           </div>
           <div className="mono emoji-safe" style={{ wordBreak: "break-all" }}>{createdToken}</div>
@@ -379,7 +385,7 @@ export function SubscriptionsPage() {
         footer={
           <>
             <button type="button" className="btn secondary" onClick={() => { setOpenCreate(false); setEditId(null); }}>取消</button>
-            <button form="sub-form" className="btn" disabled={busy || !userId || !groupId}>{busy ? "保存中..." : (editId ? "保存" : "创建")}</button>
+            <button form="sub-form" className="btn" disabled={busy || !userId || !groupIds.length}>{busy ? "保存中..." : (editId ? "保存" : "创建")}</button>
           </>
         }
       >
@@ -394,10 +400,28 @@ export function SubscriptionsPage() {
             </div>
             ) : null}
             <div className="field">
-              <label>分组</label>
-              <select className="input" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
+              <label>分组（可多选，顺序=节点合并顺序）</label>
+              <div className="check-list" style={{maxHeight: 220, overflow: 'auto'}}>
+                {groups.map((g) => {
+                  const id = Number(g.id);
+                  const checked = groupIds.includes(id);
+                  return (
+                    <label key={id} className="check-item">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          if (checked) setGroupIds(groupIds.filter((x) => x !== id));
+                          else setGroupIds([...groupIds, id]);
+                        }}
+                      />
+                      <span>#{id} {g.name}</span>
+                    </label>
+                  );
+                })}
+                {!groups.length ? <div className="muted">暂无分组</div> : null}
+              </div>
+              <div className="muted" style={{marginTop: 6}}>已选 {groupIds.length} 个；节点去重，先勾选的分组优先</div>
             </div>
             <div className="field"><label>名称</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></div>
             <div className="field"><label>拉取拉取设备上限</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} placeholder="空=不限" /></div>

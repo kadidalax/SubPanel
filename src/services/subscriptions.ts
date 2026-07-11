@@ -8,13 +8,24 @@ import { normalizeDeliveryFormat, renderProfile } from "../renderers/index.ts";
 import { readVars } from "../env.ts";
 import { getSettingNumber, getSettingString } from "./settings.ts";
 import { decryptSecret, encryptSecret } from "./credentials.ts";
+import {
+  countSubscriptionGroupRefs,
+  getSubscriptionGroupIds,
+  listSubscriptionGroups,
+  loadSubscriptionNodeMeta,
+  loadSubscriptionNodes,
+  normalizeGroupIds,
+  setSubscriptionGroups,
+} from "./subscription_groups.ts";
+export { listSubscriptionGroups, getSubscriptionGroupIds, loadSubscriptionNodeMeta } from "./subscription_groups.ts";
 
 export type UsageMode = "none" | "manual" | "upstream_exclusive";
 export type SubFormat = OutputFormat | "uri-base64" | "auto";
 
 export type SubscriptionInput = {
   userId: number;
-  groupId: number;
+  groupId?: number;
+  groupIds?: number[];
   name: string;
   defaultFormat?: SubFormat;
   deviceLimit?: number | null;
@@ -27,6 +38,7 @@ export type SubscriptionInput = {
 export type SubscriptionPatch = {
   name?: string;
   groupId?: number;
+  groupIds?: number[];
   enabled?: boolean;
   expireAt?: number | null;
   deviceLimit?: number | null;
@@ -57,6 +69,8 @@ export async function createSubscription(
   const tokenPrefix = token.slice(0, 8);
   const encryptedToken = await encryptSecret(env, token);
   const now = nowMs();
+  const primaryGroupId = normalizeGroupIds(input)[0];
+  if (!primaryGroupId) throw new Error("at least one group required");
   const res = await env.DB.prepare(
     `INSERT INTO subscriptions
       (user_id, group_id, name, token_hash, token_prefix, encrypted_token, enabled, expire_at, device_limit,
@@ -66,7 +80,7 @@ export async function createSubscription(
   )
     .bind(
       input.userId,
-      input.groupId,
+      primaryGroupId,
       input.name,
       tokenHash,
       tokenPrefix,
@@ -81,7 +95,9 @@ export async function createSubscription(
       now,
     )
     .run();
-  return { id: Number(res.meta.last_row_id), token, tokenPrefix };
+  const id = Number(res.meta.last_row_id);
+  await setSubscriptionGroups(env, id, normalizeGroupIds(input));
+  return { id, token, tokenPrefix };
 }
 
 export async function updateSubscription(env: Env, id: number, patch: SubscriptionPatch): Promise<void> {
@@ -109,7 +125,7 @@ export async function updateSubscription(env: Env, id: number, patch: Subscripti
   )
     .bind(
       patch.name ?? row.name,
-      patch.groupId ?? row.group_id,
+      (patch.groupIds && patch.groupIds.length ? normalizeGroupIds(patch)[0] : null) ?? patch.groupId ?? row.group_id,
       enabled,
       patch.expireAt !== undefined ? patch.expireAt : row.expire_at,
       patch.deviceLimit !== undefined ? patch.deviceLimit : row.device_limit,
@@ -123,6 +139,13 @@ export async function updateSubscription(env: Env, id: number, patch: Subscripti
       id,
     )
     .run();
+
+  if (patch.groupIds || patch.groupId != null) {
+    await setSubscriptionGroups(env, id, normalizeGroupIds({
+      groupIds: patch.groupIds,
+      groupId: patch.groupId ?? row.group_id,
+    }));
+  }
 }
 
 export async function rotateSubscriptionToken(
@@ -267,10 +290,7 @@ export async function getGroupNodes(env: Env, groupId: number): Promise<number[]
 }
 
 export async function deleteGroup(env: Env, groupId: number): Promise<void> {
-  const used = await env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE group_id = ?")
-    .bind(groupId)
-    .first<{ c: number }>();
-  if ((used?.c ?? 0) > 0) throw new Error("group is referenced by subscriptions");
+  if ((await countSubscriptionGroupRefs(env, groupId)) > 0) throw new Error("group is referenced by subscriptions");
   await env.DB.prepare("DELETE FROM groups WHERE id = ?").bind(groupId).run();
 }
 
@@ -375,10 +395,9 @@ function trafficExceeded(sub: any, usage: { total_bytes?: number | null; upload_
 export async function serveSubscription(env: Env, request: Request, token: string): Promise<Response> {
   const tokenHash = await sha256Text(token);
   const sub = await env.DB.prepare(
-    `SELECT s.*, u.enabled AS user_enabled, u.expire_at AS user_expire_at, g.revision AS group_revision
+    `SELECT s.*, u.enabled AS user_enabled, u.expire_at AS user_expire_at
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
-     JOIN groups g ON g.id = s.group_id
      WHERE s.token_hash = ? LIMIT 1`,
   )
     .bind(tokenHash)
@@ -412,7 +431,10 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     formatFallback = normalized.fallback;
   }
 
-  // passthrough only when EVERY active group node belongs to the same passthrough source
+  // passthrough only when EVERY active node across all groups belongs to the same passthrough source
+  const subGroupIds = await getSubscriptionGroupIds(env, Number(sub.id));
+  const groupIdList = subGroupIds.length ? subGroupIds : [Number(sub.group_id)];
+  const placeholders = groupIdList.map(() => "?").join(",");
   const mix = await env.DB.prepare(
     `SELECT
         COUNT(*) AS total,
@@ -424,9 +446,9 @@ export async function serveSubscription(env: Env, request: Request, token: strin
      FROM group_nodes gn
      JOIN source_nodes sn ON sn.id = gn.node_id
      JOIN sources src ON src.id = sn.source_id
-     WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0`,
+     WHERE gn.group_id IN (${placeholders}) AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0`,
   )
-    .bind(sub.group_id)
+    .bind(...groupIdList)
     .first<any>();
   const purePassthrough =
     Number(mix?.total || 0) > 0 &&
@@ -515,7 +537,7 @@ export async function serveSubscription(env: Env, request: Request, token: strin
           ? "application/json; charset=utf-8"
           : "text/plain; charset=utf-8";
   } else {
-    const nodes = await loadGroupNodes(env, Number(sub.group_id));
+    const nodes = await loadSubscriptionNodes(env, Number(sub.id), Number(sub.group_id));
     const rendered = renderProfile(format, nodes, vars.siteName);
     if (!rendered.body.trim()) {
       // keep opaque to avoid confirming token validity + node state
@@ -525,10 +547,8 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     contentType = rendered.contentType;
     skippedCount = rendered.skipped.length;
   }
-
-  const groupRev = Number(sub.group_revision || 0);
   const etagValue = (
-    await sha256Text([sub.id, sub.revision, sub.group_id, groupRev, format, body].join(":"))
+    await sha256Text([sub.id, sub.revision, groupIdList.join(","), format, body].join(":"))
   ).slice(0, 24);
   const etag = String.fromCharCode(34) + etagValue + String.fromCharCode(34);
   if (request.headers.get("if-none-match") === etag) {
@@ -593,7 +613,7 @@ export async function getSubscriptionRow(env: Env, id: number) {
             g.name AS group_name
      FROM subscriptions s
      JOIN users u ON u.id = s.user_id
-     JOIN groups g ON g.id = s.group_id
+     LEFT JOIN groups g ON g.id = s.group_id
      WHERE s.id = ?
      LIMIT 1`,
   )

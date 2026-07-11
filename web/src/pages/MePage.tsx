@@ -172,7 +172,7 @@ export function MePage() {
               <div className="me-sub-head">
                 <div>
                   <h3 className="me-sub-title">{r.name}</h3>
-                  <div className="muted mono">prefix {r.tokenPrefix}</div>
+                  <div className="muted mono">prefix {r.tokenPrefix}{r.groupNames ? " · "+r.groupNames : ""}</div>
                 </div>
                 <span className={badgeClass(r.health?.status || (r.enabled ? "ok" : "blocked"))}>
                   {healthLabel(r.health?.status) || (r.enabled ? "启用" : "停用")}

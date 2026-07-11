@@ -31,6 +31,23 @@ async function ensureSubscriptionTokenColumn(db: D1Database): Promise<void> {
   }
 }
 
+async function ensureSubscriptionGroups(db: D1Database): Promise<void> {
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS subscription_groups (
+  subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subscription_id, group_id)
+);`);
+    await db.exec("CREATE INDEX IF NOT EXISTS idx_subscription_groups_group ON subscription_groups(group_id);");
+    // backfill legacy single group
+    await db.exec(`INSERT OR IGNORE INTO subscription_groups (subscription_id, group_id, sort_order)
+SELECT id, group_id, 0 FROM subscriptions WHERE group_id IS NOT NULL;`);
+  } catch {
+    // ignore if base tables missing
+  }
+}
+
 /** Safe: only CREATE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS / additive columns. Never drops data. */
 export async function applySchema(db: D1Database): Promise<SchemaStatus> {
   const before = await getSchemaStatus(db);
@@ -38,10 +55,12 @@ export async function applySchema(db: D1Database): Promise<SchemaStatus> {
     await db.exec(SCHEMA_SQL);
   }
   await ensureSubscriptionTokenColumn(db);
+  await ensureSubscriptionGroups(db);
   return getSchemaStatus(db);
 }
 
 /** Best-effort additive patches for already-ready DBs. */
 export async function ensureSchemaPatches(db: D1Database): Promise<void> {
   await ensureSubscriptionTokenColumn(db);
+  await ensureSubscriptionGroups(db);
 }

@@ -166,7 +166,7 @@ export function SubscriptionDetailPage() {
         </div>
         <div className="page-header-subrow">
           <div className="sub">
-            {s.username} · 分组 {s.groupName} · 前缀 <span className="mono">{s.tokenPrefix}</span>
+            {s.username} · 分组 {s.groupName || (s.groups||[]).map((g:any)=>g.name).join(" + ")} · 前缀 <span className="mono">{s.tokenPrefix}</span>
           </div>
           <div className="page-actions">
             <button className="btn secondary" onClick={copyCurrent}>复制链接</button>

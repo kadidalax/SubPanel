@@ -3,6 +3,7 @@ import type { DeliveryFormat, NormalizedNode, OutputFormat } from "../parsers/ty
 import { renderProfile } from "../renderers/index.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
+import { getSubscriptionGroupIds, loadSubscriptionNodes } from "./subscription_groups.ts";
 
 export type HealthStatus = "ok" | "warn" | "blocked";
 
@@ -34,23 +35,9 @@ export type SubscriptionHealth = {
 
 const FORMATS: DeliveryFormat[] = ["mihomo", "singbox", "uri", "uri-base64", "surge"];
 
-async function loadActiveNodes(env: Env, groupId: number): Promise<NormalizedNode[]> {
-  const res = await env.DB.prepare(
-    `SELECT sn.normalized_json AS normalized_json
-     FROM group_nodes gn
-     JOIN source_nodes sn ON sn.id = gn.node_id
-     WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0
-     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
-  )
-    .bind(groupId)
-    .all<{ normalized_json: string }>();
-  return (res.results ?? []).map((r) => JSON.parse(r.normalized_json) as NormalizedNode);
-}
-
 async function latestSourceUsage(env: Env, sourceId: number) {
   return env.DB.prepare(
-    `SELECT upload_bytes, download_bytes, total_bytes, expire_at
-     FROM source_usage_snapshots WHERE source_id = ? ORDER BY captured_at DESC LIMIT 1`,
+    "SELECT upload_bytes, download_bytes, total_bytes, expire_at FROM source_usage_snapshots WHERE source_id = ? ORDER BY captured_at DESC LIMIT 1",
   )
     .bind(sourceId)
     .first<{
@@ -65,19 +52,24 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
   const now = nowMs();
   const vars = readVars(env);
   const warnings: string[] = [];
-  const nodes = await loadActiveNodes(env, Number(sub.group_id));
-  const totalRow = await env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM group_nodes gn
-     JOIN source_nodes sn ON sn.id = gn.node_id
-     WHERE gn.group_id = ?`,
-  )
-    .bind(sub.group_id)
-    .first<{ c: number }>();
+  const groupIds = await getSubscriptionGroupIds(env, Number(sub.id));
+  const gids = groupIds.length ? groupIds : (sub.group_id ? [Number(sub.group_id)] : []);
+  const nodes = await loadSubscriptionNodes(env, Number(sub.id), sub.group_id ? Number(sub.group_id) : undefined);
+
+  let nodeTotal = 0;
+  if (gids.length) {
+    const ph = gids.map(() => "?").join(",");
+    const totalRow = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT sn.id) AS c FROM group_nodes gn JOIN source_nodes sn ON sn.id = gn.node_id WHERE gn.group_id IN (" + ph + ")",
+    )
+      .bind(...gids)
+      .first<{ c: number }>();
+    nodeTotal = Number(totalRow?.c || 0);
+  }
 
   const byFormat = {} as Record<DeliveryFormat, FormatHealth>;
   const skipByProtocol: Record<string, number> = {};
   for (const format of FORMATS) {
-    // uri-base64 shares skip with uri rebuild
     const baseFormat: OutputFormat | "uri-base64" = format;
     const rendered = renderProfile(baseFormat === "uri-base64" ? "uri" : baseFormat, nodes);
     byFormat[format] = {
@@ -85,7 +77,7 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
       skipped: rendered.skipped.slice(0, 50),
     };
     if (rendered.skipped.length) {
-      warnings.push(`${format} 跳过 ${rendered.skipped.length} 个节点`);
+      warnings.push(format + " 跳过 " + rendered.skipped.length + " 个节点");
     }
   }
   for (const fmt of FORMATS) {
@@ -97,8 +89,8 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
   const nameToProto = new Map(nodes.map((n) => [n.name, n.protocol]));
   const protocolSkip: Record<string, number> = {};
   for (const [name, count] of Object.entries(skipByProtocol)) {
-    const p = nameToProto.get(name) || "unknown";
-    protocolSkip[p] = (protocolSkip[p] || 0) + count;
+    const proto = nameToProto.get(name) || "unknown";
+    protocolSkip[proto] = (protocolSkip[proto] || 0) + count;
   }
 
   const windowStart = now - vars.deviceWindowMs;
@@ -135,34 +127,29 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
       : null;
 
   const expireAt = sub.expire_at == null ? null : Number(sub.expire_at);
-  const daysToExpire =
-    expireAt == null ? null : Math.ceil((expireAt - now) / 86400000);
-
+  const daysToExpire = expireAt == null ? null : Math.ceil((expireAt - now) / 86400000);
   const enabled = Number(sub.enabled) === 1;
   const disabledReason = sub.disabled_reason ?? null;
 
-  const degraded = await env.DB.prepare(
-    `SELECT DISTINCT src.name AS name, src.failure_count AS failure_count, src.enabled AS enabled
-     FROM group_nodes gn
-     JOIN source_nodes sn ON sn.id = gn.node_id
-     JOIN sources src ON src.id = sn.source_id
-     WHERE gn.group_id = ? AND (src.failure_count > 0 OR src.enabled = 0)
-     LIMIT 10`,
-  )
-    .bind(sub.group_id)
-    .all<any>();
+  const degraded = gids.length
+    ? await env.DB.prepare(
+        "SELECT DISTINCT src.name AS name, src.failure_count AS failure_count, src.enabled AS enabled FROM group_nodes gn JOIN source_nodes sn ON sn.id = gn.node_id JOIN sources src ON src.id = sn.source_id WHERE gn.group_id IN (" +
+          gids.map(() => "?").join(",") +
+          ") AND (src.failure_count > 0 OR src.enabled = 0) LIMIT 10",
+      )
+        .bind(...gids)
+        .all<any>()
+    : { results: [] as any[] };
   for (const row of degraded.results ?? []) {
-    if (Number(row.enabled) !== 1) warnings.push(`源已停用：${row.name}`);
-    else warnings.push(`源异常：${row.name}（失败 ${row.failure_count} 次）`);
+    if (Number(row.enabled) !== 1) warnings.push("源已停用：" + row.name);
+    else warnings.push("源异常：" + row.name + "（失败 " + row.failure_count + " 次）");
   }
 
-  if (!enabled) warnings.push(disabledReason ? `已停用（${disabledReason}）` : "已停用");
+  if (!enabled) warnings.push(disabledReason ? "已停用（" + disabledReason + "）" : "已停用");
   if (expireAt != null && expireAt <= now) warnings.push("订阅已到期");
-  else if (daysToExpire != null && daysToExpire <= 7 && daysToExpire >= 0) {
-    warnings.push(`${daysToExpire} 天后到期`);
-  }
-  if (percent != null && percent >= 80) warnings.push(`流量已用 ${percent}%`);
-  if (nodes.length === 0) warnings.push("分组无可用节点");
+  else if (daysToExpire != null && daysToExpire <= 7 && daysToExpire >= 0) warnings.push(daysToExpire + " 天后到期");
+  if (percent != null && percent >= 80) warnings.push("流量已用 " + percent + "%");
+  if (nodes.length === 0) warnings.push("订阅关联分组无可用节点");
 
   let status: HealthStatus = "ok";
   const trafficBlocked =
@@ -180,7 +167,7 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
 
   return {
     status,
-    nodeTotal: Number(totalRow?.c || 0),
+    nodeTotal,
     nodeActive: nodes.length,
     byFormat,
     devices: {
@@ -188,13 +175,7 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
       limit: sub.device_limit == null ? null : Number(sub.device_limit),
       windowDays: Math.round(vars.deviceWindowMs / 86400000),
     },
-    usage: {
-      mode: sub.usage_mode,
-      usedBytes,
-      limitBytes,
-      percent,
-      label,
-    },
+    usage: { mode: sub.usage_mode, usedBytes, limitBytes, percent, label },
     expireAt,
     daysToExpire,
     warnings: [...new Set(warnings)],
