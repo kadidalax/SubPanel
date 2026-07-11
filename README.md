@@ -9,6 +9,7 @@
 - 管理后台 + 次级用户自助；访问与审计日志
 - 第三方 SMTP 到期 / 流量提醒，自动停用
 - 亮暗主题
+<img width="1691" height="955" alt="image" src="https://github.com/user-attachments/assets/93ba9ed4-aaf9-44d5-844c-811677b40cb8" />
 
 ## 一键部署
 
