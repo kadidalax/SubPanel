@@ -20,6 +20,7 @@ export function GroupsPage() {
   const [protocolFilter, setProtocolFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
+  const [pickMode, setPickMode] = useState<"node" | "group">("node");
   const sel = useSelection<number>();
   const nodeSel = useSelection<number>();
 
@@ -80,6 +81,83 @@ export function GroupsPage() {
 
   const filteredNodeIds = filteredNodes.map((n) => n.id as number);
 
+  const hasActiveFilter = useMemo(() => {
+    return q.trim() !== "" || protocolFilter !== "all" || sourceFilter !== "all" || groupFilter !== "all";
+  }, [q, protocolFilter, sourceFilter, groupFilter]);
+
+  const allNodeIds = useMemo(() => nodes.map((n) => n.id as number), [nodes]);
+  const selectScopeIds = hasActiveFilter ? filteredNodeIds : allNodeIds;
+  const selectScopeAllSelected = selectScopeIds.length > 0 && selectScopeIds.every((id) => nodeSel.has(id));
+
+  function nodeGroupIds(n: any): number[] {
+    if (Array.isArray(n.groupIds)) return n.groupIds.map(Number);
+    if (Array.isArray(n.groups)) return n.groups.map((x: any) => Number(x.id));
+    return [];
+  }
+
+  function nodesOfGroup(gid: number): number[] {
+    return nodes
+      .filter((n) => nodeGroupIds(n).includes(gid))
+      .map((n) => n.id as number);
+  }
+
+  const groupPickRows = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    const rows = groups
+      .map((g) => {
+        const ids = nodesOfGroup(Number(g.id));
+        const selectedCount = ids.filter((id) => nodeSel.has(id)).length;
+        return {
+          id: Number(g.id),
+          name: String(g.name || ""),
+          nodeIds: ids,
+          total: ids.length,
+          selectedCount,
+          checked: ids.length > 0 && selectedCount === ids.length,
+          partial: selectedCount > 0 && selectedCount < ids.length,
+        };
+      })
+      .filter((r) => r.total > 0);
+    if (!k) return rows;
+    return rows.filter((r) => (r.name + " " + r.id).toLowerCase().includes(k));
+  }, [groups, nodes, q, nodeSel.selected]);
+
+  function toggleSelectScope() {
+    if (!selectScopeIds.length) return;
+    if (selectScopeAllSelected) {
+      // deselect current scope only
+      nodeSel.set(nodeSel.selected.filter((id) => !selectScopeIds.includes(id)));
+    } else {
+      // select current scope, preserve previous selection order then append missing
+      const seen = new Set(nodeSel.selected);
+      const next = [...nodeSel.selected];
+      for (const id of selectScopeIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        next.push(id);
+      }
+      nodeSel.set(next);
+    }
+  }
+
+  function toggleGroupPick(gid: number) {
+    const ids = nodesOfGroup(gid);
+    if (!ids.length) return;
+    const allOn = ids.every((id) => nodeSel.has(id));
+    if (allOn) {
+      nodeSel.set(nodeSel.selected.filter((id) => !ids.includes(id)));
+    } else {
+      const seen = new Set(nodeSel.selected);
+      const next = [...nodeSel.selected];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        next.push(id);
+      }
+      nodeSel.set(next);
+    }
+  }
+
   function openCreate() {
     setEditId(null);
     setName("default");
@@ -88,6 +166,7 @@ export function GroupsPage() {
     setProtocolFilter("all");
     setSourceFilter("all");
     setGroupFilter("all");
+    setPickMode("node");
     setOpenEditor(true);
   }
 
@@ -102,6 +181,7 @@ export function GroupsPage() {
       setProtocolFilter("all");
       setSourceFilter("all");
       setGroupFilter("all");
+      setPickMode("node");
       setOpenEditor(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载分组失败");
@@ -268,7 +348,7 @@ export function GroupsPage() {
       <Modal
         open={openEditor}
         title={editId == null ? "新建分组" : `编辑分组 #${editId}`}
-        description="可不选节点直接创建空分组。勾选顺序=排序。支持 emoji 节点名。"
+        description="可不选节点直接创建空分组。支持按节点/按分组选择；有筛选时全选仅作用于当前筛选结果。勾选顺序=排序。"
         onClose={() => setOpenEditor(false)}
         wide
         footer={
@@ -284,46 +364,90 @@ export function GroupsPage() {
             <label>选择节点</label>
             <div className="list-toolbar modal-list-toolbar" style={{ marginBottom: 8 }}>
               <div className="list-toolbar-left">
+                <div className="seg-toggle" role="tablist" aria-label="选择方式">
+                  <button type="button" className={pickMode === "node" ? "seg active" : "seg"} onClick={() => setPickMode("node")}>按节点</button>
+                  <button type="button" className={pickMode === "group" ? "seg active" : "seg"} onClick={() => setPickMode("group")}>按分组</button>
+                </div>
                 <input className="input filter-search" placeholder="搜索" value={q} onChange={(e) => setQ(e.target.value)} />
-                <select className="input filter-select" value={protocolFilter} onChange={(e) => setProtocolFilter(e.target.value)} title="节点类型">
-                  <option value="all">全部类型</option>
-                  {protocols.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-                <select className="input filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} title="数据来源">
-                  <option value="all">全部来源</option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={String(s.id)}>{s.name}</option>
-                  ))}
-                </select>
-                <select className="input filter-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} title="所属分组">
-                  <option value="all">全部分组</option>
-                  <option value="0">未分组</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={String(g.id)}>{g.name}</option>
-                  ))}
-                </select>
-                <span className="muted">可见 {filteredNodes.length}</span>
+                {pickMode === "node" ? (
+                  <>
+                    <select className="input filter-select" value={protocolFilter} onChange={(e) => setProtocolFilter(e.target.value)} title="节点类型">
+                      <option value="all">全部类型</option>
+                      {protocols.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    <select className="input filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} title="数据来源">
+                      <option value="all">全部来源</option>
+                      {sources.map((s) => (
+                        <option key={s.id} value={String(s.id)}>{s.name}</option>
+                      ))}
+                    </select>
+                    <select className="input filter-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} title="所属分组">
+                      <option value="all">全部分组</option>
+                      <option value="0">未分组</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={String(g.id)}>{g.name}</option>
+                      ))}
+                    </select>
+                    <span className="muted">可见 {filteredNodes.length}</span>
+                  </>
+                ) : (
+                  <span className="muted">分组 {groupPickRows.length}</span>
+                )}
               </div>
               <div className="list-toolbar-right">
                 <span className="sel-count muted">已选 {nodeSel.count}</span>
-                <button type="button" className="btn secondary sm" onClick={() => nodeSel.toggleAll(filteredNodeIds)}>全选可见</button>
-                <button type="button" className="btn secondary sm" onClick={() => nodeSel.set(nodes.map((n) => n.id))}>全选全部</button>
+                {pickMode === "node" ? (
+                  <button
+                    type="button"
+                    className="btn secondary sm"
+                    disabled={!selectScopeIds.length}
+                    onClick={toggleSelectScope}
+                  >
+                    {selectScopeAllSelected
+                      ? (hasActiveFilter ? "取消全选(筛选)" : "取消全选")
+                      : (hasActiveFilter ? "全选(筛选)" : "全选全部")}
+                  </button>
+                ) : null}
                 <button type="button" className="btn ghost sm" disabled={!nodeSel.count} onClick={nodeSel.clear}>清空</button>
               </div>
             </div>
             <div className="check-list">
-              {filteredNodes.map((n) => (
-                <label key={n.id} className="check-item">
-                  <input type="checkbox" checked={nodeSel.has(n.id)} onChange={() => nodeSel.toggle(n.id)} />
-                  <span className="emoji-safe">
-                    #{n.id} {n.name}{" "}
-                    <span className="muted">({n.protocol} · {n.source_name || "—"})</span>
-                  </span>
-                </label>
-              ))}
-              {!filteredNodes.length ? <div className="muted">暂无匹配节点，调整筛选或先去数据源导入</div> : null}
+              {pickMode === "node" ? (
+                <>
+                  {filteredNodes.map((n) => (
+                    <label key={n.id} className="check-item">
+                      <input type="checkbox" checked={nodeSel.has(n.id)} onChange={() => nodeSel.toggle(n.id)} />
+                      <span className="emoji-safe">
+                        #{n.id} {n.name}{" "}
+                        <span className="muted">({n.protocol} · {n.source_name || "—"})</span>
+                      </span>
+                    </label>
+                  ))}
+                  {!filteredNodes.length ? <div className="muted">暂无匹配节点，调整筛选或先去数据源导入</div> : null}
+                </>
+              ) : (
+                <>
+                  {groupPickRows.map((g) => (
+                    <label key={g.id} className="check-item">
+                      <input
+                        type="checkbox"
+                        checked={g.checked}
+                        ref={(el) => {
+                          if (el) el.indeterminate = g.partial;
+                        }}
+                        onChange={() => toggleGroupPick(g.id)}
+                      />
+                      <span className="emoji-safe">
+                        {g.name}{" "}
+                        <span className="muted">({g.selectedCount}/{g.total} 节点)</span>
+                      </span>
+                    </label>
+                  ))}
+                  {!groupPickRows.length ? <div className="muted">暂无可用分组节点</div> : null}
+                </>
+              )}
             </div>
           </div>
         </form>

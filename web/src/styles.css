@@ -1656,3 +1656,33 @@ a.theme-toggle:hover { color: inherit; }
 .auth-links .btn {
   flex: 1 1 auto;
 }
+
+
+.seg-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 30px;
+  flex: 0 0 auto;
+  background: var(--surface);
+}
+.seg-toggle .seg {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 10px;
+  height: 100%;
+  font-size: 0.82rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.seg-toggle .seg.active {
+  background: var(--bg-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.seg-toggle .seg + .seg {
+  border-left: 1px solid var(--line);
+}
