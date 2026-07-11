@@ -130,10 +130,12 @@ async function upsertSourceNodes(
   let updated = 0;
   let unchanged = 0;
 
+  let order = 0;
   for (const node of nodes) {
     const key = await nodeKey(node);
     if (seen.includes(key)) continue;
     seen.push(key);
+    const sourceOrder = order++;
     const prev = existing.get(key);
     const normalized = JSON.stringify(node);
     if (!prev) added++;
@@ -142,8 +144,8 @@ async function upsertSourceNodes(
 
     await env.DB.prepare(
       `INSERT INTO source_nodes
-        (source_id, node_key, protocol, name, raw_value, normalized_json, capability_flags, enabled, stale, first_seen_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+        (source_id, node_key, protocol, name, raw_value, normalized_json, capability_flags, enabled, stale, source_order, first_seen_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
        ON CONFLICT(source_id, node_key) DO UPDATE SET
         protocol = excluded.protocol,
         name = excluded.name,
@@ -151,6 +153,7 @@ async function upsertSourceNodes(
         normalized_json = excluded.normalized_json,
         capability_flags = excluded.capability_flags,
         stale = 0,
+        source_order = excluded.source_order,
         last_seen_at = excluded.last_seen_at`,
     )
       .bind(
@@ -161,6 +164,7 @@ async function upsertSourceNodes(
         node.raw,
         normalized,
         JSON.stringify(node.capability),
+        sourceOrder,
         now,
         now,
       )
@@ -452,7 +456,7 @@ export async function listSources(env: Env) {
 export async function listSourceNodes(env: Env, sourceId: number) {
   const res = await env.DB.prepare(
     `SELECT id, source_id, protocol, name, capability_flags, enabled, stale, first_seen_at, last_seen_at
-     FROM source_nodes WHERE source_id = ? ORDER BY id ASC`,
+     FROM source_nodes WHERE source_id = ? ORDER BY source_order ASC, id ASC`,
   )
     .bind(sourceId)
     .all();

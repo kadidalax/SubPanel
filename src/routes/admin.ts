@@ -448,7 +448,7 @@ adminRoutes.get("/groups/:id/preview", async (c) => {
      FROM group_nodes gn
      JOIN source_nodes sn ON sn.id = gn.node_id
      WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0
-     ORDER BY gn.sort_order ASC, sn.id ASC`,
+     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
   )
     .bind(groupId)
     .all<{ normalized_json: string; name: string }>();
@@ -671,7 +671,7 @@ adminRoutes.get("/nodes", async (c) => {
     `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
             sn.first_seen_at, sn.last_seen_at, s.name AS source_name
      FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
-     ORDER BY sn.id DESC LIMIT 500`,
+     ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC LIMIT 2000`,
   ).all();
   return jsonOk({ nodes: res.results ?? [] });
 });

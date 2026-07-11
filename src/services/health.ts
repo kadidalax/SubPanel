@@ -40,7 +40,7 @@ async function loadActiveNodes(env: Env, groupId: number): Promise<NormalizedNod
      FROM group_nodes gn
      JOIN source_nodes sn ON sn.id = gn.node_id
      WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0
-     ORDER BY gn.sort_order ASC, sn.id ASC`,
+     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
   )
     .bind(groupId)
     .all<{ normalized_json: string }>();

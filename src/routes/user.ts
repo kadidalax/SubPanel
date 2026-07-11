@@ -114,7 +114,7 @@ userRoutes.get("/subscriptions/:id/nodes", async (c) => {
      FROM group_nodes gn
      JOIN source_nodes sn ON sn.id = gn.node_id
      WHERE gn.group_id = ? AND gn.enabled = 1
-     ORDER BY gn.sort_order ASC, sn.id ASC`,
+     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
   )
     .bind(sub.group_id)
     .all<any>();

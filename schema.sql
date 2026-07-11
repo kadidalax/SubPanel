@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS source_nodes (
   capability_flags TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
   stale INTEGER NOT NULL DEFAULT 0,
+  source_order INTEGER NOT NULL DEFAULT 0,
   first_seen_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
 );
@@ -86,6 +87,8 @@ CREATE TABLE IF NOT EXISTS source_nodes (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_source_nodes_key ON source_nodes(source_id, node_key);
 
 CREATE INDEX IF NOT EXISTS idx_source_nodes_active ON source_nodes(source_id, enabled, stale);
+
+CREATE INDEX IF NOT EXISTS idx_source_nodes_order ON source_nodes(source_id, source_order, id);
 
 CREATE TABLE IF NOT EXISTS source_usage_snapshots (
   id INTEGER PRIMARY KEY,
