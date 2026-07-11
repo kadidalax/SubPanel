@@ -17,6 +17,9 @@ export function GroupsPage() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const [q, setQ] = useState("");
+  const [protocolFilter, setProtocolFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
   const sel = useSelection<number>();
   const nodeSel = useSelection<number>();
 
