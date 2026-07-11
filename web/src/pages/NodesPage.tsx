@@ -5,33 +5,65 @@ import { fmtTime } from "../lib/format";
 import { useSelection } from "../lib/selection";
 import { BatchBar, ConfirmDialog, EmptyState, Flash, PageHeader } from "../components/ui";
 
+type NodeGroup = { id: number; name: string };
+
 export function NodesPage() {
   const [nodes, setNodes] = useState<any[]>([]);
+  const [groups, setGroups] = useState<Array<{ id: number; name: string }>>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
   const [onlyActive, setOnlyActive] = useState(true);
+  const [protocol, setProtocol] = useState("all");
+  const [groupId, setGroupId] = useState("all");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
 
   async function load() {
-    const res = await api.get<any>("/api/admin/nodes");
-    setNodes(res.nodes || []);
+    const [n, g] = await Promise.all([
+      api.get<any>("/api/admin/nodes"),
+      api.get<any>("/api/admin/groups"),
+    ]);
+    setNodes(n.nodes || []);
+    setGroups((g.groups || []).map((x: any) => ({ id: Number(x.id), name: String(x.name || "") })));
   }
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
   }, []);
 
+  const protocols = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of nodes) {
+      const p = String(n.protocol || "").trim();
+      if (p) set.add(p);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [nodes]);
+
   const filtered = useMemo(() => {
     return nodes.filter((n) => {
       if (onlyActive && (n.stale || !n.enabled)) return false;
+      if (protocol !== "all" && String(n.protocol || "") !== protocol) return false;
+      if (groupId !== "all") {
+        const ids: number[] = Array.isArray(n.groupIds)
+          ? n.groupIds.map(Number)
+          : Array.isArray(n.groups)
+            ? n.groups.map((x: NodeGroup) => Number(x.id))
+            : [];
+        if (groupId === "0") {
+          if (ids.length) return false;
+        } else if (!ids.includes(Number(groupId))) {
+          return false;
+        }
+      }
       if (!q) return true;
-      const hay = (n.name + " " + n.protocol + " " + n.source_name + " " + n.id).toLowerCase();
+      const groupNames = Array.isArray(n.groups) ? n.groups.map((x: NodeGroup) => x.name).join(" ") : "";
+      const hay = (n.name + " " + n.protocol + " " + n.source_name + " " + groupNames + " " + n.id).toLowerCase();
       return hay.includes(q.toLowerCase());
     });
-  }, [nodes, q, onlyActive]);
+  }, [nodes, q, onlyActive, protocol, groupId]);
 
   const ids = filtered.map((n) => n.id as number);
 
@@ -62,6 +94,12 @@ export function NodesPage() {
     await load();
   }
 
+  function groupLabel(n: any): string {
+    const list: NodeGroup[] = Array.isArray(n.groups) ? n.groups : [];
+    if (!list.length) return "—";
+    return list.map((g) => g.name).join(", ");
+  }
+
   return (
     <>
       <PageHeader
@@ -74,7 +112,38 @@ export function NodesPage() {
       <div className="card table-wrap">
         <div className="list-toolbar">
           <div className="list-toolbar-left">
-            <input className="input" style={{ maxWidth: 280 }} placeholder="搜索名称/协议/来源/emoji" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input
+              className="input"
+              style={{ maxWidth: 220 }}
+              placeholder="搜索名称/协议/来源/分组"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select
+              className="input"
+              style={{ width: 140 }}
+              value={protocol}
+              onChange={(e) => setProtocol(e.target.value)}
+              title="节点类型"
+            >
+              <option value="all">全部类型</option>
+              {protocols.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <select
+              className="input"
+              style={{ width: 160 }}
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              title="所属分组"
+            >
+              <option value="all">全部分组</option>
+              <option value="0">未分组</option>
+              {groups.map((g) => (
+                <option key={g.id} value={String(g.id)}>{g.name}</option>
+              ))}
+            </select>
             <label className="check-item" style={{ margin: 0 }}>
               <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />
               <span>仅启用且非 stale</span>
@@ -115,7 +184,7 @@ export function NodesPage() {
                 <th>名称</th>
                 <th>协议</th>
                 <th>来源</th>
-                <th>能力</th>
+                <th>分组</th>
                 <th>状态</th>
                 <th>最近</th>
                 <th></th>
@@ -130,8 +199,8 @@ export function NodesPage() {
                   <td>{n.id}</td>
                   <td className="name-cell emoji-safe" title={n.name}>{n.name}</td>
                   <td>{n.protocol}</td>
-                  <td>{n.source_name}</td>
-                  <td className="mono muted">{String(n.capability_flags || "").slice(0, 40)}</td>
+                  <td className="emoji-safe">{n.source_name}</td>
+                  <td className="emoji-safe muted" title={groupLabel(n)}>{groupLabel(n)}</td>
                   <td>
                     <span className={n.enabled ? "badge ok" : "badge bad"}>{n.enabled ? "启用" : "停用"}</span>
                     {n.stale ? <span className="badge warn" style={{ marginLeft: 6 }}>stale</span> : null}

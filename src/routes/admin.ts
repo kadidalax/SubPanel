@@ -669,14 +669,33 @@ adminRoutes.get("/nodes", async (c) => {
   if ("error" in gate) return gate.error;
   const res = await c.env.DB.prepare(
     `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
-            sn.first_seen_at, sn.last_seen_at, s.name AS source_name
+            sn.first_seen_at, sn.last_seen_at, s.name AS source_name,
+            (
+              SELECT GROUP_CONCAT(g.id || ':' || g.name, '|')
+              FROM group_nodes gn
+              JOIN groups g ON g.id = gn.group_id
+              WHERE gn.node_id = sn.id AND gn.enabled = 1
+            ) AS groups_csv
      FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
      ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC LIMIT 2000`,
-  ).all();
-  return jsonOk({ nodes: res.results ?? [] });
-});
-
-adminRoutes.post("/nodes/:id/enabled", async (c) => {
+  ).all<any>();
+  const nodes = (res.results ?? []).map((row: any) => {
+    const groups: Array<{ id: number; name: string }> = [];
+    if (row.groups_csv) {
+      for (const part of String(row.groups_csv).split("|")) {
+        if (!part) continue;
+        const idx = part.indexOf(":");
+        if (idx < 0) continue;
+        const id = Number(part.slice(0, idx));
+        const name = part.slice(idx + 1);
+        if (Number.isFinite(id)) groups.push({ id, name });
+      }
+    }
+    const { groups_csv, ...rest } = row;
+    return { ...rest, groups, groupIds: groups.map((g) => g.id) };
+  });
+  return jsonOk({ nodes });
+});adminRoutes.post("/nodes/:id/enabled", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
   const body = (await c.req.json().catch(() => null)) as any;
