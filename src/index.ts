@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./env.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { healthRoutes } from "./routes/health.ts";
+import { setupRoutes } from "./routes/setup.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { subRoutes } from "./routes/sub.ts";
 import { userRoutes } from "./routes/user.ts";
@@ -54,6 +55,7 @@ app.use("*", async (c, next) => {
 });
 
 app.route("/health", healthRoutes);
+app.route("/api/setup", setupRoutes);
 app.route("/api/auth", authRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/user", userRoutes);

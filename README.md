@@ -5,11 +5,16 @@
 ## 特性
 
 - 手工节点、远程订阅、透传源（URI / Base64 / Mihomo / sing-box 等）
+
 - 分组下发独立订阅（支持空分组），到期 / 订阅拉取设备数 / 流量额度
+
 - 管理后台 + 次级用户自助；访问与审计日志
+
 - 第三方 SMTP 到期 / 流量提醒，自动停用
-- 亮暗主题
-<img width="1696" height="948" alt="image" src="https://github.com/user-attachments/assets/a566060d-3f11-436f-9fb0-edbba2d95359" />
+
+- 亮暗双主题
+  
+  <img width="1696" height="948" alt="image" src="https://github.com/user-attachments/assets/a566060d-3f11-436f-9fb0-edbba2d95359" />
 
 ## 一键部署
 
@@ -17,12 +22,10 @@
 
 全部在 Cloudflare / 面板里完成，**无需配置 Secret**（生产建议补 `CREDENTIALS_KEY` 保护远程源 URL）：
 
-1. 点击上方 **Deploy to Cloudflare**，授权 GitHub 与 Cloudflare，创建应用。
+1. 点击上方 **Deploy to Cloudflare**，创建应用。
 2. 在 Dashboard 创建并绑定 **D1**：库名 `subpanel` → Worker 绑定 `DB`（fork 后请改掉示例 `database_id`）。
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明；免费账号注意全账号 Cron 配额）。
-4. 初始化数据库：打开 **存储 → D1 → subpanel → 控制台**，打开仓库 **`schema.sql`**，**全选复制**后粘贴执行。成功后 `SELECT name FROM sqlite_master WHERE type='table';` 应能看到 `users` 等表。
-5. 重新部署一次 Worker。
-6. 打开域名 → **初始化管理员** → **设置** 填 SMTP（可选）→ 导入节点 → 分组 → 建订阅。
+4. 打开 Worker 域名 → 面板会提示 **初始化数据库**（一键创建表，已有表则跳过、不删数据）→ **初始化管理员** → 开始使用。
 
 订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|surge`）。
 
@@ -36,8 +39,8 @@
 
 ### 可选 Secret
 
-| 名称 | 作用 |
-|------|------|
+| 名称                | 作用                                                         |
+| ----------------- | ---------------------------------------------------------- |
 | `CREDENTIALS_KEY` | ≥16 字符；加密远程源 URL/Headers 与 SMTP 密码。不填则首次运行写入 D1（备份/迁移库时勿丢） |
 
 ## 本地开发

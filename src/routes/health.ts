@@ -22,7 +22,7 @@ healthRoutes.get("/ready", async (c) => {
       return jsonError(
         503,
         "schema_missing",
-        "database tables missing: " + missing.join(", ") + ". Paste schema.sql in D1 console.",
+        "database tables missing: " + missing.join(", ") + ". Open panel and click initialize database.",
       );
     }
     return jsonOk({ ok: true });

@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./lib/api";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
+import { SetupPage } from "./pages/SetupPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SourcesPage } from "./pages/SourcesPage";
@@ -22,6 +23,18 @@ function isStaff(role?: string) {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dbReady, setDbReady] = useState<boolean | null>(null);
+
+  async function checkDb() {
+    try {
+      const res = await api.get<any>("/api/setup/status");
+      setDbReady(!!res?.ready);
+      return !!res?.ready;
+    } catch {
+      setDbReady(false);
+      return false;
+    }
+  }
 
   async function refresh() {
     try {
@@ -34,14 +47,21 @@ export default function App() {
     }
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    (async () => {
+      const ready = await checkDb();
+      if (ready) await refresh();
+      else setLoading(false);
+    })();
+  }, []);
 
   async function logout() {
     await api.post("/api/auth/logout");
     setUser(null);
   }
 
-  if (loading) return <div className="auth-page muted">加载中...</div>;
+  if (dbReady === null || loading) return <div className="auth-page muted">加载中...</div>;
+  if (!dbReady) return <SetupPage onReady={async () => { setDbReady(true); setLoading(true); await refresh(); }} />;
   if (!user) return <LoginPage onDone={refresh} />;
 
   return (
