@@ -710,68 +710,82 @@ adminRoutes.get("/subscriptions", async (c) => {
 adminRoutes.get("/nodes", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
-  const url = new URL(c.req.url);
-  let limit = Number(url.searchParams.get("limit") || 200);
-  let offset = Number(url.searchParams.get("offset") || 0);
-  if (!Number.isFinite(limit) || limit <= 0) limit = 200;
-  if (limit > 500) limit = 500;
-  if (!Number.isFinite(offset) || offset < 0) offset = 0;
-  const sourceId = url.searchParams.get("sourceId");
-  const q = (url.searchParams.get("q") || "").trim();
+  try {
+    const url = new URL(c.req.url);
+    let limit = Number(url.searchParams.get("limit") || 500);
+    let offset = Number(url.searchParams.get("offset") || 0);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 500;
+    if (limit > 2000) limit = 2000;
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+    const sourceId = url.searchParams.get("sourceId");
+    const q = (url.searchParams.get("q") || "").trim();
 
-  const where: string[] = ["1=1"];
-  const binds: any[] = [];
-  if (sourceId) {
-    where.push("sn.source_id = ?");
-    binds.push(Number(sourceId));
-  }
-  if (q) {
-    where.push("(sn.name LIKE ? OR sn.protocol LIKE ? OR s.name LIKE ?)");
-    const like = "%" + q + "%";
-    binds.push(like, like, like);
-  }
-  const whereSql = where.join(" AND ");
-
-  const countPrep = c.env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`,
-  );
-  const listPrep = c.env.DB.prepare(
-    `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
-            sn.first_seen_at, sn.last_seen_at, s.name AS source_name
-     FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
-     WHERE ${whereSql}
-     ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
-     LIMIT ? OFFSET ?`,
-  );
-  const countStmt = binds.length ? countPrep.bind(...binds) : countPrep;
-  const listStmt = listPrep.bind(...binds, limit, offset);
-  const [countRes, listRes] = await c.env.DB.batch([countStmt, listStmt] as any);
-  const total = Number((countRes.results?.[0] as any)?.c || 0);
-  const pageRows = listRes.results ?? [];
-  const nodeIds = pageRows.map((r: any) => Number(r.id));
-  const groupByNode = new Map<number, Array<{ id: number; name: string }>>();
-  if (nodeIds.length) {
-    const ph = nodeIds.map(() => "?").join(",");
-    const gres = await c.env.DB.prepare(
-      `SELECT gn.node_id AS node_id, g.id AS id, g.name AS name
-       FROM group_nodes gn JOIN groups g ON g.id = gn.group_id
-       WHERE gn.node_id IN (${ph}) AND gn.enabled = 1`,
-    )
-      .bind(...nodeIds)
-      .all<any>();
-    for (const r of gres.results ?? []) {
-      const nid = Number(r.node_id);
-      const list = groupByNode.get(nid) || [];
-      list.push({ id: Number(r.id), name: String(r.name) });
-      groupByNode.set(nid, list);
+    const where: string[] = ["1=1"];
+    const binds: any[] = [];
+    if (sourceId) {
+      where.push("sn.source_id = ?");
+      binds.push(Number(sourceId));
     }
+    if (q) {
+      where.push("(sn.name LIKE ? OR sn.protocol LIKE ? OR s.name LIKE ?)");
+      const like = "%" + q + "%";
+      binds.push(like, like, like);
+    }
+    const whereSql = where.join(" AND ");
+
+    // Avoid prepare().bind() with zero params (D1 throws). Avoid batch here for simpler failures.
+    const countSql =
+      `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`;
+    const listSql =
+      `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
+              sn.first_seen_at, sn.last_seen_at, s.name AS source_name
+       FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
+       WHERE ${whereSql}
+       ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
+       LIMIT ? OFFSET ?`;
+
+    const totalRow = binds.length
+      ? await c.env.DB.prepare(countSql).bind(...binds).first<{ c: number }>()
+      : await c.env.DB.prepare(countSql).first<{ c: number }>();
+    const total = Number(totalRow?.c || 0);
+
+    const listRes = await c.env.DB.prepare(listSql).bind(...binds, limit, offset).all<any>();
+    const pageRows = listRes.results ?? [];
+    const nodeIds = pageRows.map((r: any) => Number(r.id)).filter((n: number) => Number.isFinite(n) && n > 0);
+
+    const groupByNode = new Map<number, Array<{ id: number; name: string }>>();
+    if (nodeIds.length) {
+      // Chunk IN lists to stay well under D1 bind limits.
+      const chunkSize = 200;
+      for (let i = 0; i < nodeIds.length; i += chunkSize) {
+        const chunk = nodeIds.slice(i, i + chunkSize);
+        const ph = chunk.map(() => "?").join(",");
+        const gres = await c.env.DB.prepare(
+          `SELECT gn.node_id AS node_id, g.id AS id, g.name AS name
+           FROM group_nodes gn JOIN groups g ON g.id = gn.group_id
+           WHERE gn.node_id IN (${ph}) AND gn.enabled = 1`,
+        )
+          .bind(...chunk)
+          .all<any>();
+        for (const r of gres.results ?? []) {
+          const nid = Number(r.node_id);
+          const list = groupByNode.get(nid) || [];
+          list.push({ id: Number(r.id), name: String(r.name) });
+          groupByNode.set(nid, list);
+        }
+      }
+    }
+
+    const nodes = pageRows.map((row: any) => {
+      const groups = groupByNode.get(Number(row.id)) || [];
+      return { ...row, groups, groupIds: groups.map((g) => g.id) };
+    });
+    return jsonOk({ nodes, total, limit, offset });
+  } catch (err) {
+    return jsonError(500, "nodes_query_failed", err instanceof Error ? err.message : "nodes query failed");
   }
-  const nodes = pageRows.map((row: any) => {
-    const groups = groupByNode.get(Number(row.id)) || [];
-    return { ...row, groups, groupIds: groups.map((g) => g.id) };
-  });
-  return jsonOk({ nodes, total, limit, offset });
-});adminRoutes.post("/nodes/:id/enabled", async (c) => {
+});
+adminRoutes.post("/nodes/:id/enabled", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
   const body = (await c.req.json().catch(() => null)) as any;
