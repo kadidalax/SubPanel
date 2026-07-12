@@ -75,13 +75,15 @@ function rebuildUri(
     return { line: raw, usedV2raynFallback: false, exportedCert: hasCert };
   }
 
-  // Already-standard share link: keep when it still carries cert if needed.
+  // Already-standard share link: keep only if cert requirement already satisfied.
+  // If we have a stored cert but raw URI lacks it, fall through to rebuild (esp. vless).
   if (raw.includes("://") && !raw.startsWith("{") && !raw.toLowerCase().startsWith("v2rayn://")) {
-    if (!hasCert || lineHasCertParam(raw) || raw.includes(certInput)) {
+    const rawHasCert = lineHasCertParam(raw) || (hasCert && raw.includes(certInput));
+    if (!hasCert || rawHasCert) {
       return {
         line: raw,
         usedV2raynFallback: false,
-        exportedCert: hasCert && (lineHasCertParam(raw) || raw.includes(certInput)),
+        exportedCert: hasCert && rawHasCert,
       };
     }
   }
@@ -228,8 +230,49 @@ function rebuildUri(
         "#" +
         encodeURIComponent(node.name || "trojan");
     }
+  } else if (node.protocol === "vless") {
+    const uuid = String(node.auth?.uuid || "");
+    if (uuid && node.server && node.port) {
+      const q = new URLSearchParams();
+      const encryption = String((node.extras as any)?.encryption || "none");
+      q.set("encryption", encryption);
+      if (node.auth?.flow) q.set("flow", String(node.auth.flow));
+      const security = String((node.tls as any)?.security || (node.tls?.reality ? "reality" : node.tls?.enabled ? "tls" : "none"));
+      if (security) q.set("security", security);
+      if (node.tls?.serverName) q.set("sni", String(node.tls.serverName));
+      if (node.tls?.fingerprint) q.set("fp", String(node.tls.fingerprint));
+      const reality = node.tls?.reality as any;
+      if (reality?.publicKey || reality?.public_key) q.set("pbk", String(reality.publicKey || reality.public_key));
+      if (reality?.shortId || reality?.short_id) q.set("sid", String(reality.shortId || reality.short_id));
+      if (reality?.spiderX || reality?.spider_x) q.set("spx", String(reality.spiderX || reality.spider_x));
+      const tType = String(node.transport?.type || "tcp");
+      q.set("type", tType === "" ? "tcp" : tType);
+      if (node.transport?.path) q.set("path", String(node.transport.path));
+      if (node.transport?.host) q.set("host", String(node.transport.host));
+      if (node.transport?.serviceName) q.set("serviceName", String(node.transport.serviceName));
+      if (node.tls?.alpn && Array.isArray(node.tls.alpn) && node.tls.alpn.length) q.set("alpn", node.tls.alpn.join(","));
+      if (insecureFlag(node)) q.set("allowInsecure", "1");
+      // Attach pinned cert when present (v2rayN can import; NekoBox hy2 still ignores cert on hy2 only).
+      if (hasCert) applyCertToSearchParams(q, certInput);
+      line =
+        "vless://" +
+        encodeURIComponent(uuid) +
+        "@" +
+        node.server +
+        ":" +
+        node.port +
+        "?" +
+        q.toString() +
+        "#" +
+        encodeURIComponent(node.name || "vless");
+    }
   } else if (raw.includes("://") && !raw.startsWith("{") && !raw.toLowerCase().startsWith("v2rayn://")) {
-    line = raw;
+    // Prefer rebuilding when we have cert but raw share-link does not carry it.
+    if (hasCert && !lineHasCertParam(raw) && !raw.includes(certInput)) {
+      line = null;
+    } else {
+      line = raw;
+    }
   }
 
   if (line && hasCert && !lineHasCertParam(line)) {

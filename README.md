@@ -29,7 +29,7 @@
 
 订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|uri-base64|surge`）。
 
-浏览器打开默认同页展示正文（`inline`）。URI 列表默认导出**标准分享链**（含 hy2/naive 证书字段规范化）；v2rayN 若需原样 `v2rayn://` 包装可加 `?vendor=v2rayn`。 NekoBox 请用 `?format=singbox`（分享链 hy2 无法携带 CA，客户端亦不解析 cert）。
+浏览器打开默认同页展示正文（`inline`）。NekoBox / v2rayN 通用链接使用 URI 列表；源数据里已有证书会尽量写入分享参数。Workers 无法在每次拉订阅时像客户端「获取证书」那样主动探测节点 TLS（需源自带 cert，或在客户端手动获取）。VLESS 多数只有 Reality/pbk/fp，不一定有 PEM 证书。v2rayN 原样包装可加 `?vendor=v2rayn`。
 
 ### 流量说明
 
