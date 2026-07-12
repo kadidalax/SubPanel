@@ -268,8 +268,13 @@ async function loadAllNodes() {
       <div className="card table-wrap">
           <div className="list-toolbar">
             <div className="list-toolbar-left">
-              <label className="muted">预览格式</label>
-              <select className="input" style={{ width: 160 }} value={previewFormat} onChange={(e) => setPreviewFormat(e.target.value)}>
+              <select
+                className="input filter-select"
+                value={previewFormat}
+                onChange={(e) => setPreviewFormat(e.target.value)}
+                title="预览格式"
+                aria-label="预览格式"
+              >
                 <option value="uri">uri</option>
                 <option value="uri-base64">uri-base64</option>
                 <option value="mihomo">mihomo</option>
