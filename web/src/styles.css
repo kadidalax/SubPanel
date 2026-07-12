@@ -549,20 +549,34 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; }
 
 .field { display: grid; gap: 6px; }
 .field label {
-  color: var(--muted);
+  color: var(--text-soft);
   font-size: 0.84rem;
   font-weight: 600;
 }
 .field .hint { color: var(--muted); font-size: 0.78rem; }
 .input, select, textarea, .textarea {
   width: 100%;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in oklab, var(--text) 24%, var(--line));
   border-radius: 12px;
   padding: 10px 12px;
   background: var(--surface);
   color: var(--text);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--surface) 65%, transparent);
+}
+select.input, select {
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, color-mix(in oklab, var(--text) 55%, transparent) 50%),
+    linear-gradient(135deg, color-mix(in oklab, var(--text) 55%, transparent) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 11px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+  appearance: none;
 }
 .textarea, textarea {
   min-height: 140px;
@@ -571,9 +585,12 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; }
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.86rem;
 }
+.input:hover, select:hover, textarea:hover, .textarea:hover {
+  border-color: color-mix(in oklab, var(--text) 36%, var(--line));
+}
 .input:focus, select:focus, textarea:focus, .textarea:focus {
-  border-color: var(--focus-border);
-  box-shadow: 0 0 0 3px var(--ring);
+  border-color: color-mix(in oklab, var(--text) 48%, var(--focus-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--text) 14%, var(--ring));
 }
 .check-row, .check-item {
   display: flex;
@@ -593,12 +610,15 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; }
 }
 .check-item {
   padding: 10px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in oklab, var(--text) 18%, var(--line));
   border-radius: 12px;
   background: var(--surface);
   cursor: pointer;
 }
-.check-item:hover { background: var(--bg-soft); }
+.check-item:hover {
+  background: var(--bg-soft);
+  border-color: color-mix(in oklab, var(--text) 30%, var(--line));
+}
 .check-item input { accent-color: var(--brand); }
 
 .table-wrap { overflow: auto; border-radius: inherit; }
