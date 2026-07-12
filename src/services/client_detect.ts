@@ -6,11 +6,10 @@ export function detectClient(uaRaw: string | null): { family: ClientFamily; form
   const ua = (uaRaw || "").toLowerCase();
   if (!ua) return { family: "unknown", format: "uri" };
   if (ua.includes("surge")) return { family: "surge", format: "surge" };
-  if (
-    ua.includes("sing-box") ||
-    ua.includes("singbox") ||
-    ua.includes("karing")
-  ) {
+  if (ua.includes("nekobox") || ua.includes("v2rayng") || ua.includes("shadowrocket") || ua.includes("quantumult")) {
+    return { family: "uri", format: "uri" };
+  }
+  if (ua.includes("sing-box") || ua.includes("singbox") || ua.includes("karing")) {
     return { family: "singbox", format: "singbox" };
   }
   if (
@@ -26,13 +25,7 @@ export function detectClient(uaRaw: string | null): { family: ClientFamily; form
   ) {
     return { family: "mihomo", format: "mihomo" };
   }
-  if (
-    ua.includes("v2rayn") ||
-    ua.includes("nekobox") ||
-    ua.includes("shadowrocket") ||
-    ua.includes("v2rayng") ||
-    ua.includes("quantumult")
-  ) {
+  if (ua.includes("v2rayn")) {
     return { family: "uri", format: "uri" };
   }
   return { family: "unknown", format: "uri" };

@@ -538,7 +538,11 @@ export async function serveSubscription(env: Env, request: Request, token: strin
           : "text/plain; charset=utf-8";
   } else {
     const nodes = await loadSubscriptionNodes(env, Number(sub.id), Number(sub.group_id));
-    const rendered = renderProfile(format, nodes, vars.siteName);
+    const uaLower = (request.headers.get("user-agent") || "").toLowerCase();
+    const preferRawV2rayn =
+      url.searchParams.get("vendor") === "v2rayn" ||
+      (uaLower.includes("v2rayn") && !uaLower.includes("nekobox") && !uaLower.includes("v2rayng"));
+    const rendered = renderProfile(format, nodes, vars.siteName, { preferRawV2rayn });
     if (!rendered.body.trim()) {
       // keep opaque to avoid confirming token validity + node state
       return opaque404();
@@ -585,7 +589,7 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     "X-Sub-Skipped-Nodes": String(skippedCount),
     "X-Sub-Client-Family": detected.family,
     "X-Sub-Format": format,
-    "Content-Disposition": `attachment; filename="${asciiName}.${fileExt}"; filename*=UTF-8''${utf8Name}`,
+    "Content-Disposition": `inline; filename="${asciiName}.${fileExt}"; filename*=UTF-8''${utf8Name}`,
   };
   if (formatFallback) headers["X-Sub-Format-Fallback"] = "1";
   if (announce) headers["Announce"] = announce;
