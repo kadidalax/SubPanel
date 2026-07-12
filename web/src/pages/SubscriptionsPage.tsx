@@ -391,15 +391,21 @@ export function SubscriptionsPage() {
       >
         <form id="sub-form" className="stack" onSubmit={create}>
           <div className="form-grid">
-            {editId == null ? (
-            <div className="field">
-              <label>用户</label>
-              <select className="input" value={userId} onChange={(e) => setUserId(e.target.value)}>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
-              </select>
+            <div className="field-row-compact">
+              {editId == null ? (
+                <div className="field compact">
+                  <label>用户</label>
+                  <select className="input" value={userId} onChange={(e) => setUserId(e.target.value)}>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+                  </select>
+                </div>
+              ) : null}
+              <div className="field compact">
+                <label>名称</label>
+                <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
             </div>
-            ) : null}
-            <div className="field">
+            <div className="field full">
               <label>分组（可多选，顺序=节点合并顺序）</label>
               <div className="check-list" style={{maxHeight: 220, overflow: 'auto'}}>
                 {groups.map((g) => {
@@ -423,8 +429,7 @@ export function SubscriptionsPage() {
               </div>
               <div className="muted" style={{marginTop: 6}}>已选 {groupIds.length} 个；节点去重，先勾选的分组优先</div>
             </div>
-            <div className="field"><label>名称</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div className="field"><label>拉取拉取设备上限</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} placeholder="空=不限" /></div>
+            <div className="field compact"><label>设备上限</label><input className="input" value={deviceLimit} onChange={(e) => setDeviceLimit(e.target.value)} placeholder="空=不限" /></div>
             <div className="field">
               <label>默认格式</label>
               <select className="input" value={defaultFormat} onChange={(e) => setDefaultFormat(e.target.value)}>
