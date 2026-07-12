@@ -21,12 +21,29 @@ export function NodesPage() {
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
 
+
+async function loadAllNodes() {
+  const pageSize = 500;
+  let offset = 0;
+  let total = Infinity;
+  const all: any[] = [];
+  while (offset < total && all.length < 2000) {
+    const n = await api.get<any>(`/api/admin/nodes?limit=${pageSize}&offset=${offset}`);
+    total = Number(n.total || 0);
+    const chunk = n.nodes || [];
+    all.push(...chunk);
+    if (!chunk.length) break;
+    offset += pageSize;
+  }
+  return all;
+}
+
   async function load() {
-    const [n, g] = await Promise.all([
-      api.get<any>("/api/admin/nodes"),
+    const [nodes, g] = await Promise.all([
+      loadAllNodes(),
       api.get<any>("/api/admin/groups"),
     ]);
-    setNodes(n.nodes || []);
+    setNodes(nodes);
     setGroups((g.groups || []).map((x: any) => ({ id: Number(x.id), name: String(x.name || "") })));
   }
 

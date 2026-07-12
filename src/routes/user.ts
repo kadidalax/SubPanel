@@ -8,8 +8,8 @@ import { hashPassword, verifyPassword } from "../crypto/password.ts";
 import { assertPassword } from "../util/password_policy.ts";
 import { readVars } from "../env.ts";
 import { nowMs } from "../util/time.ts";
-import { getSubscriptionRow, listSubscriptionGroups, loadSubscriptionNodeMeta, revealSubscriptionToken, rotateSubscriptionToken } from "../services/subscriptions.ts";
-import { buildSubscriptionHealth } from "../services/health.ts";
+import { getSubscriptionRow, listGroupsForSubscriptionIds, listSubscriptionGroups, loadSubscriptionNodeMeta, revealSubscriptionToken, rotateSubscriptionToken } from "../services/subscriptions.ts";
+import { buildSubscriptionHealthLiteBatch } from "../services/health.ts";
 
 type AppEnv = { Bindings: Env };
 export const userRoutes = new Hono<AppEnv>();
@@ -38,17 +38,21 @@ userRoutes.get("/subscriptions", async (c) => {
   if ("error" in gate) return gate.error;
   const res = await c.env.DB.prepare(
     `SELECT id, name, token_prefix, enabled, expire_at, device_limit, default_format, usage_mode,
-            traffic_limit_bytes, manual_used_bytes, disabled_reason, group_id, created_at
+            traffic_limit_bytes, manual_used_bytes, exclusive_source_id, disabled_reason, group_id, created_at
      FROM subscriptions WHERE user_id = ? ORDER BY id DESC`,
   )
     .bind(gate.auth.user.id)
     .all<any>();
   const rows = res.results ?? [];
-  const subscriptions = [];
-  for (const row of rows) {
-    const health = await buildSubscriptionHealth(c.env, row);
-    const groups = await listSubscriptionGroups(c.env, Number(row.id));
-    subscriptions.push({
+  const groupMap = await listGroupsForSubscriptionIds(
+    c.env,
+    rows.map((r) => Number(r.id)),
+  );
+  const healthMap = await buildSubscriptionHealthLiteBatch(c.env, rows, groupMap);
+  const subscriptions = rows.map((row) => {
+    const groups = groupMap.get(Number(row.id)) || [];
+    const health = healthMap.get(Number(row.id));
+    return {
       id: row.id,
       name: row.name,
       tokenPrefix: row.token_prefix,
@@ -64,17 +68,20 @@ userRoutes.get("/subscriptions", async (c) => {
       manualUsedBytes: row.manual_used_bytes,
       disabledReason: row.disabled_reason,
       createdAt: row.created_at,
-      health: {
-        status: health.status,
-        nodeActive: health.nodeActive,
-        devices: health.devices,
-        usage: health.usage,
-        expireAt: health.expireAt,
-        daysToExpire: health.daysToExpire,
-        warnings: health.warnings,
-      },
-    });
-  }
+      health: health
+        ? {
+            status: health.status,
+            nodeActive: health.nodeActive,
+            nodeTotal: health.nodeTotal,
+            devices: health.devices,
+            usage: health.usage,
+            expireAt: health.expireAt,
+            daysToExpire: health.daysToExpire,
+            warnings: health.warnings,
+          }
+        : undefined,
+    };
+  });
   return jsonOk({ subscriptions });
 });
 

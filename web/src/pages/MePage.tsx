@@ -50,25 +50,32 @@ export function MePage() {
     const map: Record<number, string> = {};
     for (const r of list) {
       const cached = loadSubToken(r.id);
-      if (cached) {
-        map[r.id] = cached;
-        continue;
-      }
-      try {
-        const tr = await api.get<any>(`/api/user/subscriptions/${r.id}/token`);
-        if (tr?.token) {
-          saveSubToken(r.id, tr.token);
-          map[r.id] = tr.token;
-        }
-      } catch {
-        // legacy without encrypted token
-      }
+      if (cached) map[r.id] = cached;
     }
     setTokenMap(map);
     if (list.length && activeSubId == null) setActiveSubId(list[0].id);
     if (activeSubId != null && !list.some((r: any) => r.id === activeSubId)) {
       setActiveSubId(list[0]?.id ?? null);
     }
+  }
+
+  async function ensureToken(id: number): Promise<string | null> {
+    const existing = tokenMap[id] || loadSubToken(id);
+    if (existing) {
+      if (!tokenMap[id]) setTokenMap((m) => ({ ...m, [id]: existing }));
+      return existing;
+    }
+    try {
+      const tr = await api.get<any>(`/api/user/subscriptions/${id}/token`);
+      if (tr?.token) {
+        saveSubToken(id, tr.token);
+        setTokenMap((m) => ({ ...m, [id]: tr.token }));
+        return tr.token as string;
+      }
+    } catch {
+      /* legacy */
+    }
+    return null;
   }
 
   useEffect(() => {
@@ -123,9 +130,9 @@ export function MePage() {
   }
 
   async function copyFormat(id: number, format: any, title: string) {
-    const token = tokenMap[id];
+    const token = await ensureToken(id);
     if (!token) {
-      setError("无已存链接（旧数据需轮换一次后即可长期复用）");
+      setError("该订阅暂无可用链接，请先轮换一次以生成可复用链接");
       return;
     }
     await showCopied(buildSubUrl(token, format), title);

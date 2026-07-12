@@ -51,6 +51,53 @@ export async function getSubscriptionGroupIds(env: Env, subscriptionId: number):
   return row?.group_id ? [Number(row.group_id)] : [];
 }
 
+
+export async function listGroupsForSubscriptionIds(
+  env: Env,
+  subscriptionIds: number[],
+): Promise<Map<number, Array<{ id: number; name: string; sortOrder: number }>>> {
+  const out = new Map<number, Array<{ id: number; name: string; sortOrder: number }>>();
+  const ids = [...new Set(subscriptionIds.map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return out;
+
+  const ph = ids.map(() => "?").join(",");
+  const res = await env.DB.prepare(
+    `SELECT sg.subscription_id AS subscription_id, g.id AS id, g.name AS name, sg.sort_order AS sort_order
+     FROM subscription_groups sg
+     JOIN groups g ON g.id = sg.group_id
+     WHERE sg.subscription_id IN (${ph})
+     ORDER BY sg.subscription_id ASC, sg.sort_order ASC, g.id ASC`,
+  )
+    .bind(...ids)
+    .all<any>();
+
+  for (const r of res.results ?? []) {
+    const sid = Number(r.subscription_id);
+    const list = out.get(sid) || [];
+    list.push({ id: Number(r.id), name: String(r.name), sortOrder: Number(r.sort_order || 0) });
+    out.set(sid, list);
+  }
+
+  const missing = ids.filter((id) => !out.has(id));
+  if (missing.length) {
+    const ph2 = missing.map(() => "?").join(",");
+    const legacy = await env.DB.prepare(
+      `SELECT s.id AS subscription_id, g.id AS id, g.name AS name
+       FROM subscriptions s
+       JOIN groups g ON g.id = s.group_id
+       WHERE s.id IN (${ph2})`,
+    )
+      .bind(...missing)
+      .all<any>();
+    for (const r of legacy.results ?? []) {
+      const sid = Number(r.subscription_id);
+      if (out.has(sid)) continue;
+      out.set(sid, [{ id: Number(r.id), name: String(r.name), sortOrder: 0 }]);
+    }
+  }
+  return out;
+}
+
 export async function listSubscriptionGroups(
   env: Env,
   subscriptionId: number,
@@ -83,19 +130,29 @@ export async function loadSubscriptionNodes(
 ): Promise<NormalizedNode[]> {
   let groupIds = await getSubscriptionGroupIds(env, subscriptionId);
   if (!groupIds.length && fallbackGroupId) groupIds = [fallbackGroupId];
+  if (!groupIds.length) return [];
+  const ph = groupIds.map(() => "?").join(",");
+  const res = await env.DB.prepare(
+    `SELECT sn.id AS id, sn.normalized_json AS normalized_json, gn.group_id AS group_id
+     FROM group_nodes gn
+     JOIN source_nodes sn ON sn.id = gn.node_id
+     WHERE gn.group_id IN (${ph}) AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0
+     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
+  )
+    .bind(...groupIds)
+    .all<{ id: number; normalized_json: string; group_id: number }>();
+
+  const byGroup = new Map<number, Array<{ id: number; normalized_json: string }>>();
+  for (const r of res.results ?? []) {
+    const gid = Number(r.group_id);
+    const list = byGroup.get(gid) || [];
+    list.push(r);
+    byGroup.set(gid, list);
+  }
   const out: NormalizedNode[] = [];
   const seen = new Set<number>();
   for (const gid of groupIds) {
-    const res = await env.DB.prepare(
-      `SELECT sn.id AS id, sn.normalized_json AS normalized_json
-       FROM group_nodes gn
-       JOIN source_nodes sn ON sn.id = gn.node_id
-       WHERE gn.group_id = ? AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0
-       ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
-    )
-      .bind(gid)
-      .all<{ id: number; normalized_json: string }>();
-    for (const r of res.results ?? []) {
+    for (const r of byGroup.get(gid) || []) {
       const nid = Number(r.id);
       if (seen.has(nid)) continue;
       seen.add(nid);
@@ -112,6 +169,26 @@ export async function loadSubscriptionNodeMeta(
 ) {
   let groupIds = await getSubscriptionGroupIds(env, subscriptionId);
   if (!groupIds.length && fallbackGroupId) groupIds = [fallbackGroupId];
+  if (!groupIds.length) return [];
+  const ph = groupIds.map(() => "?").join(",");
+  const res = await env.DB.prepare(
+    `SELECT sn.id AS id, sn.protocol AS protocol, sn.name AS name, sn.normalized_json AS normalized_json,
+            sn.enabled AS enabled, sn.stale AS stale, gn.group_id AS group_id
+     FROM group_nodes gn
+     JOIN source_nodes sn ON sn.id = gn.node_id
+     WHERE gn.group_id IN (${ph}) AND gn.enabled = 1
+     ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
+  )
+    .bind(...groupIds)
+    .all<any>();
+
+  const byGroup = new Map<number, any[]>();
+  for (const r of res.results ?? []) {
+    const gid = Number(r.group_id);
+    const list = byGroup.get(gid) || [];
+    list.push(r);
+    byGroup.set(gid, list);
+  }
   const out: Array<{
     id: number;
     protocol: string;
@@ -122,21 +199,18 @@ export async function loadSubscriptionNodeMeta(
   }> = [];
   const seen = new Set<number>();
   for (const gid of groupIds) {
-    const res = await env.DB.prepare(
-      `SELECT sn.id AS id, sn.protocol AS protocol, sn.name AS name, sn.normalized_json AS normalized_json,
-              sn.enabled AS enabled, sn.stale AS stale
-       FROM group_nodes gn
-       JOIN source_nodes sn ON sn.id = gn.node_id
-       WHERE gn.group_id = ? AND gn.enabled = 1
-       ORDER BY gn.sort_order ASC, sn.source_order ASC, sn.id ASC`,
-    )
-      .bind(gid)
-      .all<any>();
-    for (const r of res.results ?? []) {
+    for (const r of byGroup.get(gid) || []) {
       const nid = Number(r.id);
       if (seen.has(nid)) continue;
       seen.add(nid);
-      out.push(r);
+      out.push({
+        id: nid,
+        protocol: r.protocol,
+        name: r.name,
+        normalized_json: r.normalized_json,
+        enabled: r.enabled,
+        stale: r.stale,
+      });
     }
   }
   return out;

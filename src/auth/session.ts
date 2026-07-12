@@ -84,7 +84,9 @@ export async function requireUser(
   const found = await findSessionUser(env.DB, tokenHash, now);
   if (!found) return null;
   const vars = readVars(env);
-  await touchSession(env.DB, found.session.id, now + vars.sessionIdleMs, now);
+  if (now - found.session.last_seen_at >= vars.sessionTouchMinMs) {
+    await touchSession(env.DB, found.session.id, now + vars.sessionIdleMs, now);
+  }
   return { user: found.user, sessionId: found.session.id };
 }
 

@@ -11,7 +11,6 @@ export const setupRoutes = new Hono<AppEnv>();
 setupRoutes.get("/status", async (c) => {
   try {
     await c.env.DB.prepare("SELECT 1 AS ok").first();
-    await ensureSchemaPatches(c.env.DB);
     const status = await getSchemaStatus(c.env.DB);
     return jsonOk({
       db: true,

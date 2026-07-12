@@ -48,11 +48,28 @@ export default function App() {
   }
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const ready = await checkDb();
-      if (ready) await refresh();
-      else setLoading(false);
+      try {
+        const [status, me] = await Promise.all([
+          api.get<any>("/api/setup/status"),
+          api.get<any>("/api/auth/me").catch(() => null),
+        ]);
+        if (cancelled) return;
+        setDbReady(!!status?.ready);
+        setUser(me?.user ?? null);
+      } catch {
+        if (!cancelled) {
+          setDbReady(false);
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function logout() {

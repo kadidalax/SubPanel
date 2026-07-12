@@ -9,6 +9,7 @@ export interface Env {
   SESSION_ABSOLUTE_MS: string;
   DEVICE_WINDOW_MS: string;
   ACCESS_LOG_RETENTION_DAYS: string;
+  SESSION_TOUCH_MIN_MS?: string;
   /** Optional. If missing, a key is auto-created in D1 settings. */
   CREDENTIALS_KEY?: string;
 }
@@ -20,6 +21,7 @@ export interface AppVars {
   sessionAbsoluteMs: number;
   deviceWindowMs: number;
   accessLogRetentionDays: number;
+  sessionTouchMinMs: number;
 }
 
 export function readVars(env: Env): AppVars {
@@ -30,5 +32,6 @@ export function readVars(env: Env): AppVars {
     sessionAbsoluteMs: Number(env.SESSION_ABSOLUTE_MS || 7 * 24 * 3600 * 1000),
     deviceWindowMs: Number(env.DEVICE_WINDOW_MS || 7 * 24 * 3600 * 1000),
     accessLogRetentionDays: Number(env.ACCESS_LOG_RETENTION_DAYS || 7),
+    sessionTouchMinMs: Number(env.SESSION_TOUCH_MIN_MS || 60_000),
   };
 }

@@ -24,10 +24,27 @@ export function GroupsPage() {
   const sel = useSelection<number>();
   const nodeSel = useSelection<number>();
 
+
+async function loadAllNodes() {
+  const pageSize = 500;
+  let offset = 0;
+  let total = Infinity;
+  const all: any[] = [];
+  while (offset < total && all.length < 2000) {
+    const n = await api.get<any>(`/api/admin/nodes?limit=${pageSize}&offset=${offset}`);
+    total = Number(n.total || 0);
+    const chunk = n.nodes || [];
+    all.push(...chunk);
+    if (!chunk.length) break;
+    offset += pageSize;
+  }
+  return all;
+}
+
   async function load() {
-    const [g, n] = await Promise.all([api.get<any>("/api/admin/groups"), api.get<any>("/api/admin/nodes")]);
+    const [g, nodes] = await Promise.all([api.get<any>("/api/admin/groups"), loadAllNodes()]);
     setGroups(g.groups || []);
-    setNodes((n.nodes || []).filter((x: any) => x.enabled && !x.stale));
+    setNodes(nodes.filter((x: any) => x.enabled && !x.stale));
   }
 
   useEffect(() => {

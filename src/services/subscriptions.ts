@@ -17,7 +17,7 @@ import {
   normalizeGroupIds,
   setSubscriptionGroups,
 } from "./subscription_groups.ts";
-export { listSubscriptionGroups, getSubscriptionGroupIds, loadSubscriptionNodeMeta } from "./subscription_groups.ts";
+export { listSubscriptionGroups, listGroupsForSubscriptionIds, getSubscriptionGroupIds, loadSubscriptionNodeMeta } from "./subscription_groups.ts";
 
 export type UsageMode = "none" | "manual" | "upstream_exclusive";
 export type SubFormat = OutputFormat | "uri-base64" | "auto";

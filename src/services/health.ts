@@ -35,6 +35,199 @@ export type SubscriptionHealth = {
 
 const FORMATS: DeliveryFormat[] = ["mihomo", "singbox", "uri", "uri-base64", "surge"];
 
+export function computeLiteHealthStatus(input: {
+  enabled: boolean;
+  expireAt: number | null;
+  now: number;
+  usageMode: string;
+  usedBytes: number | null;
+  limitBytes: number | null;
+  nodeActive: number;
+}): { status: HealthStatus; daysToExpire: number | null; warnings: string[]; percent: number | null } {
+  const warnings: string[] = [];
+  const daysToExpire =
+    input.expireAt == null ? null : Math.ceil((input.expireAt - input.now) / 86400000);
+  const percent =
+    input.usedBytes != null && input.limitBytes != null && input.limitBytes > 0
+      ? Math.min(100, Math.floor((input.usedBytes / input.limitBytes) * 100))
+      : null;
+  if (!input.enabled) warnings.push("已停用");
+  if (input.expireAt != null && input.expireAt <= input.now) warnings.push("订阅已到期");
+  else if (daysToExpire != null && daysToExpire <= 7 && daysToExpire >= 0) {
+    warnings.push(daysToExpire + " 天后到期");
+  }
+  if (percent != null && percent >= 80) warnings.push("流量已用 " + percent + "%");
+  if (input.nodeActive === 0) warnings.push("订阅关联分组无可用节点");
+
+  const trafficBlocked =
+    input.limitBytes != null &&
+    input.usedBytes != null &&
+    input.usedBytes >= input.limitBytes &&
+    input.usageMode !== "none";
+  let status: HealthStatus = "ok";
+  if (
+    !input.enabled ||
+    (input.expireAt != null && input.expireAt <= input.now) ||
+    trafficBlocked ||
+    input.nodeActive === 0
+  ) {
+    status = "blocked";
+  } else if ((daysToExpire != null && daysToExpire <= 7) || (percent != null && percent >= 80)) {
+    status = "warn";
+  }
+  return { status, daysToExpire, warnings: [...new Set(warnings)], percent };
+}
+
+export type LiteHealth = Pick<
+  SubscriptionHealth,
+  | "status"
+  | "nodeTotal"
+  | "nodeActive"
+  | "devices"
+  | "usage"
+  | "expireAt"
+  | "daysToExpire"
+  | "warnings"
+  | "disabledReason"
+  | "enabled"
+>;
+
+export async function buildSubscriptionHealthLiteBatch(
+  env: Env,
+  subs: any[],
+  _groupMap: Map<number, Array<{ id: number; name: string; sortOrder: number }>>,
+): Promise<Map<number, LiteHealth>> {
+  const now = nowMs();
+  const vars = readVars(env);
+  const windowStart = now - vars.deviceWindowMs;
+  const ids = subs.map((s) => Number(s.id)).filter((n) => n > 0);
+  const out = new Map<number, LiteHealth>();
+  if (!ids.length) return out;
+
+  const ph = ids.map(() => "?").join(",");
+  const deviceUsed = new Map<number, number>();
+  const activeBySub = new Map<number, number>();
+  const totalBySub = new Map<number, number>();
+
+  const [dres, ares, tres] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT subscription_id AS sid, COUNT(*) AS c FROM subscription_devices
+       WHERE subscription_id IN (${ph}) AND last_seen_at >= ?
+       GROUP BY subscription_id`,
+    ).bind(...ids, windowStart),
+    env.DB.prepare(
+      `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
+       FROM subscription_groups sg
+       JOIN group_nodes gn ON gn.group_id = sg.group_id AND gn.enabled = 1
+       JOIN source_nodes sn ON sn.id = gn.node_id AND sn.enabled = 1 AND sn.stale = 0
+       WHERE sg.subscription_id IN (${ph})
+       GROUP BY sg.subscription_id`,
+    ).bind(...ids),
+    env.DB.prepare(
+      `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
+       FROM subscription_groups sg
+       JOIN group_nodes gn ON gn.group_id = sg.group_id
+       JOIN source_nodes sn ON sn.id = gn.node_id
+       WHERE sg.subscription_id IN (${ph})
+       GROUP BY sg.subscription_id`,
+    ).bind(...ids),
+  ] as any);
+  for (const r of (dres.results ?? []) as any[]) deviceUsed.set(Number(r.sid), Number(r.c));
+  for (const r of (ares.results ?? []) as any[]) activeBySub.set(Number(r.sid), Number(r.c));
+  for (const r of (tres.results ?? []) as any[]) totalBySub.set(Number(r.sid), Number(r.c));
+
+  const missingNodeStats = ids.filter((id) => !activeBySub.has(id) && !totalBySub.has(id));
+  if (missingNodeStats.length) {
+    const ph2 = missingNodeStats.map(() => "?").join(",");
+    const legacy = await env.DB.prepare(
+      `SELECT s.id AS sid,
+              (SELECT COUNT(DISTINCT sn.id) FROM group_nodes gn
+                 JOIN source_nodes sn ON sn.id = gn.node_id
+                 WHERE gn.group_id = s.group_id AND gn.enabled = 1 AND sn.enabled = 1 AND sn.stale = 0) AS active_c,
+              (SELECT COUNT(DISTINCT sn.id) FROM group_nodes gn
+                 JOIN source_nodes sn ON sn.id = gn.node_id
+                 WHERE gn.group_id = s.group_id) AS total_c
+       FROM subscriptions s WHERE s.id IN (${ph2})`,
+    )
+      .bind(...missingNodeStats)
+      .all<any>();
+    for (const r of legacy.results ?? []) {
+      activeBySub.set(Number(r.sid), Number(r.active_c || 0));
+      totalBySub.set(Number(r.sid), Number(r.total_c || 0));
+    }
+  }
+
+  const sourceIds = [
+    ...new Set(
+      subs
+        .filter((s) => s.usage_mode === "upstream_exclusive" && s.exclusive_source_id)
+        .map((s) => Number(s.exclusive_source_id)),
+    ),
+  ];
+  const usageBySource = new Map<number, number>();
+  for (const sid of sourceIds) {
+    const u = await latestSourceUsage(env, sid);
+    if (!u) {
+      usageBySource.set(sid, 0);
+      continue;
+    }
+    usageBySource.set(
+      sid,
+      u.total_bytes != null
+        ? Number(u.total_bytes)
+        : Number(u.upload_bytes || 0) + Number(u.download_bytes || 0),
+    );
+  }
+
+  for (const sub of subs) {
+    const sid = Number(sub.id);
+    const nodeActive = activeBySub.get(sid) || 0;
+    const nodeTotal = totalBySub.get(sid) || 0;
+    let usedBytes: number | null = null;
+    let label = "未启用流量统计";
+    const mode = String(sub.usage_mode || "none");
+    if (mode === "manual") {
+      usedBytes = Number(sub.manual_used_bytes || 0);
+      label = "手工已用";
+    } else if (mode === "upstream_exclusive" && sub.exclusive_source_id) {
+      usedBytes = usageBySource.get(Number(sub.exclusive_source_id)) ?? 0;
+      label = "上游账号总流量";
+    } else if (mode === "none") {
+      label = "不限流量";
+    }
+    const limitBytes = sub.traffic_limit_bytes == null ? null : Number(sub.traffic_limit_bytes);
+    const enabled = Number(sub.enabled) === 1;
+    const expireAt = sub.expire_at == null ? null : Number(sub.expire_at);
+    const lite = computeLiteHealthStatus({
+      enabled,
+      expireAt,
+      now,
+      usageMode: mode,
+      usedBytes,
+      limitBytes,
+      nodeActive,
+    });
+    out.set(sid, {
+      status: lite.status,
+      nodeTotal,
+      nodeActive,
+      devices: {
+        used: deviceUsed.get(sid) || 0,
+        limit: sub.device_limit == null ? null : Number(sub.device_limit),
+        windowDays: Math.round(vars.deviceWindowMs / 86400000),
+      },
+      usage: { mode, usedBytes, limitBytes, percent: lite.percent, label },
+      expireAt,
+      daysToExpire: lite.daysToExpire,
+      warnings: lite.warnings,
+      disabledReason: sub.disabled_reason ?? null,
+      enabled,
+    });
+  }
+  return out;
+}
+
+
 async function latestSourceUsage(env: Env, sourceId: number) {
   return env.DB.prepare(
     "SELECT upload_bytes, download_bytes, total_bytes, expire_at FROM source_usage_snapshots WHERE source_id = ? ORDER BY captured_at DESC LIMIT 1",

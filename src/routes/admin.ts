@@ -46,6 +46,7 @@ import {
   updateGroup,
   getGroupNodes,
   listSubscriptionGroups,
+  listGroupsForSubscriptionIds,
 } from "../services/subscriptions.ts";
 import { buildSubscriptionHealth } from "../services/health.ts";
 import { sendNotification } from "../services/notifications.ts";
@@ -689,51 +690,86 @@ adminRoutes.get("/subscriptions", async (c) => {
      ORDER BY s.id DESC`,
   ).all<any>();
   const rows = res.results ?? [];
-  const subscriptions = [];
-  for (const row of rows) {
-    const groups = await listSubscriptionGroups(c.env, Number(row.id));
-    subscriptions.push({
+  const groupMap = await listGroupsForSubscriptionIds(
+    c.env,
+    rows.map((r: any) => Number(r.id)),
+  );
+  const subscriptions = rows.map((row: any) => {
+    const groups = groupMap.get(Number(row.id)) || [];
+    return {
       ...row,
       group_id: groups[0]?.id ?? row.group_id,
       groupIds: groups.map((g) => g.id),
       groups,
       groupNames: groups.map((g) => g.name).join(", "),
-    });
-  }
+    };
+  });
   return jsonOk({ subscriptions });
 });
 
 adminRoutes.get("/nodes", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
-  const res = await c.env.DB.prepare(
-    `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
-            sn.first_seen_at, sn.last_seen_at, s.name AS source_name,
-            (
-              SELECT GROUP_CONCAT(g.id || ':' || g.name, '|')
-              FROM group_nodes gn
-              JOIN groups g ON g.id = gn.group_id
-              WHERE gn.node_id = sn.id AND gn.enabled = 1
-            ) AS groups_csv
-     FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
-     ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC LIMIT 2000`,
-  ).all<any>();
-  const nodes = (res.results ?? []).map((row: any) => {
-    const groups: Array<{ id: number; name: string }> = [];
-    if (row.groups_csv) {
-      for (const part of String(row.groups_csv).split("|")) {
-        if (!part) continue;
-        const idx = part.indexOf(":");
-        if (idx < 0) continue;
-        const id = Number(part.slice(0, idx));
-        const name = part.slice(idx + 1);
-        if (Number.isFinite(id)) groups.push({ id, name });
-      }
+  const url = new URL(c.req.url);
+  let limit = Number(url.searchParams.get("limit") || 200);
+  let offset = Number(url.searchParams.get("offset") || 0);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 200;
+  if (limit > 500) limit = 500;
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const sourceId = url.searchParams.get("sourceId");
+  const q = (url.searchParams.get("q") || "").trim();
+
+  const where: string[] = ["1=1"];
+  const binds: any[] = [];
+  if (sourceId) {
+    where.push("sn.source_id = ?");
+    binds.push(Number(sourceId));
+  }
+  if (q) {
+    where.push("(sn.name LIKE ? OR sn.protocol LIKE ? OR s.name LIKE ?)");
+    const like = "%" + q + "%";
+    binds.push(like, like, like);
+  }
+  const whereSql = where.join(" AND ");
+
+  const [countRes, listRes] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`,
+    ).bind(...binds),
+    c.env.DB.prepare(
+      `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
+              sn.first_seen_at, sn.last_seen_at, s.name AS source_name
+       FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
+       WHERE ${whereSql}
+       ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
+       LIMIT ? OFFSET ?`,
+    ).bind(...binds, limit, offset),
+  ] as any);
+  const total = Number((countRes.results?.[0] as any)?.c || 0);
+  const pageRows = listRes.results ?? [];
+  const nodeIds = pageRows.map((r: any) => Number(r.id));
+  const groupByNode = new Map<number, Array<{ id: number; name: string }>>();
+  if (nodeIds.length) {
+    const ph = nodeIds.map(() => "?").join(",");
+    const gres = await c.env.DB.prepare(
+      `SELECT gn.node_id AS node_id, g.id AS id, g.name AS name
+       FROM group_nodes gn JOIN groups g ON g.id = gn.group_id
+       WHERE gn.node_id IN (${ph}) AND gn.enabled = 1`,
+    )
+      .bind(...nodeIds)
+      .all<any>();
+    for (const r of gres.results ?? []) {
+      const nid = Number(r.node_id);
+      const list = groupByNode.get(nid) || [];
+      list.push({ id: Number(r.id), name: String(r.name) });
+      groupByNode.set(nid, list);
     }
-    const { groups_csv, ...rest } = row;
-    return { ...rest, groups, groupIds: groups.map((g) => g.id) };
+  }
+  const nodes = pageRows.map((row: any) => {
+    const groups = groupByNode.get(Number(row.id)) || [];
+    return { ...row, groups, groupIds: groups.map((g) => g.id) };
   });
-  return jsonOk({ nodes });
+  return jsonOk({ nodes, total, limit, offset });
 });adminRoutes.post("/nodes/:id/enabled", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
@@ -989,22 +1025,38 @@ adminRoutes.get("/jobs", async (c) => {
 adminRoutes.get("/dashboard", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;
-  const q = async (sql: string) => Number((await c.env.DB.prepare(sql).first<{ c: number }>())?.c || 0);
   const now = nowMs();
   const dayAgo = now - 86400000;
   const weekLater = now + 7 * 86400000;
+  const stmts = [
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM users"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM sources"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM source_nodes WHERE stale = 0"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM groups"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM job_runs WHERE status = 'failed'"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM notifications WHERE status = 'pending'"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE enabled = 0"),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM subscription_access_logs WHERE created_at >= ?").bind(dayAgo),
+    c.env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM subscriptions WHERE expire_at IS NOT NULL AND expire_at > ? AND expire_at <= ?",
+    ).bind(now, weekLater),
+    c.env.DB.prepare("SELECT COUNT(*) AS c FROM sources WHERE enabled = 1 AND failure_count > 0"),
+  ];
+  const rows = await c.env.DB.batch(stmts as any);
+  const n = (i: number) => Number((rows[i] as any)?.results?.[0]?.c ?? 0);
   return jsonOk({
-    users: await q("SELECT COUNT(*) AS c FROM users"),
-    sources: await q("SELECT COUNT(*) AS c FROM sources"),
-    nodes: await q("SELECT COUNT(*) AS c FROM source_nodes WHERE stale = 0"),
-    groups: await q("SELECT COUNT(*) AS c FROM groups"),
-    subscriptions: await q("SELECT COUNT(*) AS c FROM subscriptions"),
-    failedJobs: await q("SELECT COUNT(*) AS c FROM job_runs WHERE status = 'failed'"),
-    pendingNotifications: await q("SELECT COUNT(*) AS c FROM notifications WHERE status = 'pending'"),
-    disabledSubscriptions: await q("SELECT COUNT(*) AS c FROM subscriptions WHERE enabled = 0"),
-    accessLast24h: Number((await c.env.DB.prepare("SELECT COUNT(*) AS c FROM subscription_access_logs WHERE created_at >= ?").bind(dayAgo).first<{ c: number }>())?.c || 0),
-    expiring7d: Number((await c.env.DB.prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE expire_at IS NOT NULL AND expire_at > ? AND expire_at <= ?").bind(now, weekLater).first<{ c: number }>())?.c || 0),
-    degradedSources: Number((await c.env.DB.prepare("SELECT COUNT(*) AS c FROM sources WHERE enabled = 1 AND failure_count > 0").first<{ c: number }>())?.c || 0),
+    users: n(0),
+    sources: n(1),
+    nodes: n(2),
+    groups: n(3),
+    subscriptions: n(4),
+    failedJobs: n(5),
+    pendingNotifications: n(6),
+    disabledSubscriptions: n(7),
+    accessLast24h: n(8),
+    expiring7d: n(9),
+    degradedSources: n(10),
   });
 });
 
