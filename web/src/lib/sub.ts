@@ -11,7 +11,8 @@ export const CLIENT_LINKS: ClientLink[] = [
   { id: "auto", title: "通用自动", format: "auto", hint: "按客户端 UA 自动识别" },
   { id: "flclash", title: "FlClash / Mihomo", format: "mihomo", hint: "Clash Meta 系" },
   { id: "karing", title: "Karing / sing-box", format: "singbox", hint: "sing-box JSON" },
-  { id: "nekobox", title: "NekoBox / v2rayN", format: "uri", hint: "标准 URI 列表" },
+  { id: "nekobox", title: "NekoBox", format: "singbox", hint: "sing-box JSON（保留证书）" },
+  { id: "v2rayn_uri", title: "v2rayN URI", format: "uri", hint: "标准 URI；原样包装加 vendor=v2rayn" },
   { id: "v2rayn_b64", title: "v2rayN (Base64)", format: "uri-base64", hint: "URI 列表 Base64" },
   { id: "surge", title: "Surge", format: "surge", hint: "常见协议子集" },
 ];

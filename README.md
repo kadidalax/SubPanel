@@ -29,7 +29,7 @@
 
 订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|uri-base64|surge`）。
 
-浏览器打开默认同页展示正文（`inline`）。URI 列表默认导出**标准分享链**（含 hy2/naive 证书字段规范化）；v2rayN 若需原样 `v2rayn://` 包装可加 `?vendor=v2rayn`。
+浏览器打开默认同页展示正文（`inline`）。URI 列表默认导出**标准分享链**（含 hy2/naive 证书字段规范化）；v2rayN 若需原样 `v2rayn://` 包装可加 `?vendor=v2rayn`。 NekoBox 请用 `?format=singbox`（分享链 hy2 无法携带 CA，客户端亦不解析 cert）。
 
 ### 流量说明
 

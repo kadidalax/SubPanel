@@ -6,7 +6,12 @@ export function detectClient(uaRaw: string | null): { family: ClientFamily; form
   const ua = (uaRaw || "").toLowerCase();
   if (!ua) return { family: "unknown", format: "uri" };
   if (ua.includes("surge")) return { family: "surge", format: "surge" };
-  if (ua.includes("nekobox") || ua.includes("v2rayng") || ua.includes("shadowrocket") || ua.includes("quantumult")) {
+  // NekoBox is sing-box based; URI hy2 share links cannot carry CA (client ignores cert=).
+  // Prefer sing-box JSON so certificate pinning fields are preserved.
+  if (ua.includes("nekobox")) {
+    return { family: "singbox", format: "singbox" };
+  }
+  if (ua.includes("v2rayng") || ua.includes("shadowrocket") || ua.includes("quantumult")) {
     return { family: "uri", format: "uri" };
   }
   if (ua.includes("sing-box") || ua.includes("singbox") || ua.includes("karing")) {
