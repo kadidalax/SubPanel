@@ -84,7 +84,7 @@ export function MePage() {
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -244,7 +244,7 @@ export function MePage() {
               ) : null}
             </div>
           ))}
-          {!loading && !rows.length ? (
+          {!loading && !error && !rows.length ? (
             <div className="card empty">
               <div className="empty-ico" aria-hidden="true" />
               <h3>暂无订阅</h3>
@@ -324,7 +324,9 @@ export function MePage() {
               </table>
             </div>
           ) : (
-            <div className="muted">{!rows.length ? "暂无订阅。" : "该订阅分组暂无节点。"}</div>
+            <div className="muted">
+              {error ? "加载失败，请稍后重试。" : !rows.length ? "暂无订阅。" : "该订阅分组暂无节点。"}
+            </div>
           )}
         </div>
       )}
