@@ -254,23 +254,31 @@ export function MePage() {
           {loadingNodes ? (
             <div className="muted">加载节点中…</div>
           ) : nodes.length ? (
-            <div className="table-wrap">
+            <div className="table-wrap me-nodes-wrap">
               <table className="table me-nodes-table">
+                <colgroup>
+                  <col className="col-name" />
+                  <col className="col-proto" />
+                  <col className="col-addr" />
+                  <col className="col-status" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>名称</th>
-                    <th>协议</th>
-                    <th>地址</th>
-                    <th>状态</th>
+                    <th className="col-name">名称</th>
+                    <th className="col-proto">协议</th>
+                    <th className="col-addr">地址</th>
+                    <th className="col-status">状态</th>
                   </tr>
                 </thead>
                 <tbody>
                   {nodes.map((n) => (
                     <tr key={n.id}>
-                      <td>{n.name || `#${n.id}`}</td>
-                      <td className="mono">{n.protocol || "—"}</td>
-                      <td className="mono">{n.server ? `${n.server}${n.port != null ? `:${n.port}` : ""}` : "—"}</td>
-                      <td>
+                      <td className="col-name emoji-safe" title={n.name || `#${n.id}`}>{n.name || `#${n.id}`}</td>
+                      <td className="col-proto mono">{n.protocol || "—"}</td>
+                      <td className="col-addr mono" title={n.server ? `${n.server}${n.port != null ? `:${n.port}` : ""}` : "—"}>
+                        {n.server ? `${n.server}${n.port != null ? `:${n.port}` : ""}` : "—"}
+                      </td>
+                      <td className="col-status">
                         <span className={badgeClass(n.enabled && !n.stale ? "ok" : n.stale ? "warn" : "blocked")}>
                           {!n.enabled ? "停用" : n.stale ? "陈旧" : "可用"}
                         </span>

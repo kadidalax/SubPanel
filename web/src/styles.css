@@ -1673,9 +1673,39 @@ a.theme-toggle:hover { color: inherit; }
   border-top: 1px solid var(--line-soft);
   padding-top: 12px;
 }
+.me-nodes-wrap {
+  overflow-x: auto;
+}
+.me-nodes-table {
+  width: max-content !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  table-layout: auto;
+}
 .me-nodes-table th,
 .me-nodes-table td {
   font-size: 0.86rem;
+  white-space: nowrap;
+  width: 1%;
+  vertical-align: middle;
+}
+.me-nodes-table .col-name {
+  width: auto;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.me-nodes-table .col-proto {
+  width: 1%;
+}
+.me-nodes-table .col-addr {
+  width: auto;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.me-nodes-table .col-status {
+  width: 1%;
 }
 @media (max-width: 720px) {
   .me-sub-body {
