@@ -1,27 +1,66 @@
 import type { NormalizedNode } from "../parsers/types.ts";
 
+/** Normalize PEM for sing-box outbound TLS (string, not array). */
+function normalizePem(input: unknown): string | undefined {
+  if (input == null) return undefined;
+  let s = String(input).trim();
+  if (!s) return undefined;
+  s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  return s || undefined;
+}
+
+function hopPorts(extras: Record<string, unknown>): string[] | undefined {
+  const raw = extras.ports ?? extras.mport;
+  if (raw == null || raw === "") return undefined;
+  if (Array.isArray(raw)) {
+    const out = raw.map((x) => String(x).trim().replace(/-/g, ":")).filter(Boolean);
+    return out.length ? out : undefined;
+  }
+  const parts = String(raw)
+    .split(/[,\s]+/)
+    .map((p) => p.trim().replace(/-/g, ":"))
+    .filter(Boolean);
+  return parts.length ? parts : undefined;
+}
+
 function tlsObj(node: NormalizedNode) {
   const tls = node.tls || {};
-  const extras = node.extras || {};
-  if (!(tls.enabled || tls.reality || node.protocol === "trojan" || node.protocol === "hysteria2" || node.protocol === "hysteria" || node.protocol === "tuic" || node.protocol === "anytls" || node.protocol === "naive")) {
+  const extras = (node.extras || {}) as Record<string, unknown>;
+  if (
+    !(
+      tls.enabled ||
+      tls.reality ||
+      node.protocol === "trojan" ||
+      node.protocol === "hysteria2" ||
+      node.protocol === "hysteria" ||
+      node.protocol === "tuic" ||
+      node.protocol === "anytls" ||
+      node.protocol === "naive"
+    )
+  ) {
     return undefined;
   }
-  const cert = tls.certificate || extras.certificate;
-  return {
+  const cert = normalizePem(tls.certificate || extras.certificate);
+  const reality = tls.reality as Record<string, unknown> | undefined;
+  const out: Record<string, unknown> = {
     enabled: true,
-    server_name: tls.serverName,
+    server_name: tls.serverName || undefined,
     insecure: Boolean(tls.allowInsecure || tls.insecure),
-    certificate: cert ? [String(cert)] : undefined,
-    alpn: tls.alpn,
-    utls: tls.fingerprint ? { enabled: true, fingerprint: tls.fingerprint } : undefined,
-    reality: tls.reality
-      ? {
-          enabled: true,
-          public_key: (tls.reality as any).publicKey || (tls.reality as any).public_key,
-          short_id: (tls.reality as any).shortId || (tls.reality as any).short_id,
-        }
-      : undefined,
   };
+  // sing-box outbound TLS uses a PEM string (docs), not inbound-style string[].
+  if (cert) out.certificate = cert;
+  if (tls.alpn && Array.isArray(tls.alpn) && tls.alpn.length) out.alpn = tls.alpn;
+  if (tls.fingerprint) out.utls = { enabled: true, fingerprint: String(tls.fingerprint) };
+  if (reality) {
+    const publicKey = reality.publicKey ?? reality.public_key;
+    const shortId = reality.shortId ?? reality.short_id;
+    out.reality = {
+      enabled: true,
+      public_key: publicKey != null ? String(publicKey) : undefined,
+      short_id: shortId != null && shortId !== "" ? String(shortId) : undefined,
+    };
+  }
+  return out;
 }
 
 function transportObj(node: NormalizedNode) {
@@ -96,15 +135,25 @@ function toSingboxOutbound(node: NormalizedNode): Record<string, unknown> | Reco
       };
     case "vless":
       return { ...base, type: "vless", uuid: auth.uuid, flow: auth.flow, tls, transport };
-    case "hysteria2":
+    case "hysteria2": {
+      const ports = hopPorts((extras || {}) as Record<string, unknown>);
+      const obfsType = (extras as any).obfs ? String((extras as any).obfs) : "";
       return {
         ...base,
         type: "hysteria2",
         password: auth.password,
         tls,
-        server_ports: extras.ports || extras.mport ? [String(extras.ports || extras.mport)] : undefined,
-        obfs: extras.obfs ? { type: extras.obfs, password: extras.obfsPassword } : undefined,
+        ...(ports ? { server_ports: ports } : {}),
+        ...(obfsType
+          ? {
+              obfs: {
+                type: obfsType,
+                password: (extras as any).obfsPassword != null ? String((extras as any).obfsPassword) : undefined,
+              },
+            }
+          : {}),
       };
+    }
     case "tuic":
       return {
         ...base,
