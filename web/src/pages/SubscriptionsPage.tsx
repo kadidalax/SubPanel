@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { badgeClass, bytesToGbInput, fmtTime, gbToBytes } from "../lib/format";
 import { buildSubUrl, copyText, loadSubToken, saveSubToken } from "../lib/sub";
 import { useSelection } from "../lib/selection";
-import { BatchBar, ConfirmDialog, EmptyState, Flash, Modal, PageHeader } from "../components/ui";
+import { BatchBar, ConfirmDialog, EmptyState, Flash, ListLoading, Modal, PageHeader } from "../components/ui";
 
 export function SubscriptionsPage() {
   const [rows, setRows] = useState<any[]>([]);
@@ -18,6 +18,7 @@ export function SubscriptionsPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
 
@@ -32,22 +33,26 @@ export function SubscriptionsPage() {
   const [defaultFormat, setDefaultFormat] = useState("auto");
 
   async function load() {
-    const [s, u, g, src] = await Promise.all([
-      api.get<any>("/api/admin/subscriptions"),
-      api.get<any>("/api/admin/users"),
-      api.get<any>("/api/admin/groups"),
-      api.get<any>("/api/admin/sources"),
-    ]);
-    setRows(s.subscriptions || []);
-    setUsers(u.users || []);
-    setGroups(g.groups || []);
-    setSources(src.sources || []);
-    if (!userId && u.users?.[0]) setUserId(String(u.users[0].id));
-    if (!groupIds.length && g.groups?.[0]) setGroupIds([Number(g.groups[0].id)]);
+    try {
+      const [s, u, g, src] = await Promise.all([
+        api.get<any>("/api/admin/subscriptions"),
+        api.get<any>("/api/admin/users"),
+        api.get<any>("/api/admin/groups"),
+        api.get<any>("/api/admin/sources"),
+      ]);
+      setRows(s.subscriptions || []);
+      setUsers(u.users || []);
+      setGroups(g.groups || []);
+      setSources(src.sources || []);
+      if (!userId && u.users?.[0]) setUserId(String(u.users[0].id));
+      if (!groupIds.length && g.groups?.[0]) setGroupIds([Number(g.groups[0].id)]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
 
   function openCreateModal() {
@@ -297,7 +302,9 @@ export function SubscriptionsPage() {
           </div>
         </div>
 
-        {!rows.length ? (
+        {loading ? (
+          <ListLoading />
+        ) : !rows.length ? (
           <EmptyState title="还没有订阅入口" desc="先准备分组，再为用户创建订阅并复制客户端链接。" action={<button className="btn" onClick={openCreateModal}>创建订阅</button>} />
         ) : (
           <table>

@@ -3,13 +3,14 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { badgeClass, fmtTime, sourceHealthLabel } from "../lib/format";
 import { useSelection } from "../lib/selection";
-import { BatchBar, ConfirmDialog, EmptyState, Flash, Modal, PageHeader } from "../components/ui";
+import { BatchBar, ConfirmDialog, EmptyState, Flash, ListLoading, Modal, PageHeader } from "../components/ui";
 
 export function SourcesPage() {
   const [sources, setSources] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"manual" | "remote" | "pass" | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
@@ -28,12 +29,16 @@ export function SourcesPage() {
   const [editEnabled, setEditEnabled] = useState(true);
 
   async function load() {
-    const res = await api.get<any>("/api/admin/sources");
-    setSources(res.sources || []);
+    try {
+      const res = await api.get<any>("/api/admin/sources");
+      setSources(res.sources || []);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
 
   async function openEdit(id: number) {
@@ -247,7 +252,9 @@ export function SourcesPage() {
           </div>
         </div>
 
-        {!sources.length ? (
+        {loading ? (
+          <ListLoading />
+        ) : !sources.length ? (
           <EmptyState title="先导入手工节点或远程订阅" desc="导入成功后到节点池勾选进分组，再创建订阅入口。" action={<button className="btn" onClick={() => openCreate("manual")}>开始导入</button>} />
         ) : (
           <table>

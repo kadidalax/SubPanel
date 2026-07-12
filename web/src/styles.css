@@ -1805,3 +1805,18 @@ a.theme-toggle:hover { color: inherit; }
 .seg-toggle .seg + .seg {
   border-left: 1px solid var(--line);
 }
+
+
+/* list first-load state */
+.list-loading {
+  padding: 8px 4px 16px;
+}
+.list-loading-label {
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+.list-loading-row {
+  height: 42px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+}

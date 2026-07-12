@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { badgeClass, fmtTime } from "../lib/format";
 import { useSelection } from "../lib/selection";
-import { BatchBar, ConfirmDialog, EmptyState, Flash, Modal, PageHeader } from "../components/ui";
+import { BatchBar, ConfirmDialog, EmptyState, Flash, ListLoading, Modal, PageHeader } from "../components/ui";
 
 export function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -16,16 +16,21 @@ export function UsersPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [editUsername, setEditUsername] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
 
   async function load() {
-    const res = await api.get<any>("/api/admin/users");
-    setUsers(res.users || []);
+    try {
+      const res = await api.get<any>("/api/admin/users");
+      setUsers(res.users || []);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
 
   function openCreateModal() {
@@ -168,7 +173,9 @@ export function UsersPage() {
           </div>
         </div>
 
-        {!users.length ? (
+        {loading ? (
+          <ListLoading />
+        ) : !users.length ? (
           <EmptyState title="暂无用户" desc="先创建次级账号，再为其下发订阅。" action={<button className="btn" onClick={openCreateModal}>新建用户</button>} />
         ) : (
           <table>

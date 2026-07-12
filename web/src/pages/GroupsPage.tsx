@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useSelection } from "../lib/selection";
-import { BatchBar, ConfirmDialog, EmptyState, Flash, Modal, PageHeader } from "../components/ui";
+import { BatchBar, ConfirmDialog, EmptyState, Flash, ListLoading, Modal, PageHeader } from "../components/ui";
 
 export function GroupsPage() {
   const [groups, setGroups] = useState<any[]>([]);
@@ -15,6 +15,7 @@ export function GroupsPage() {
   const [openEditor, setOpenEditor] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const [q, setQ] = useState("");
   const [protocolFilter, setProtocolFilter] = useState("all");
@@ -42,13 +43,17 @@ async function loadAllNodes() {
 }
 
   async function load() {
-    const [g, nodes] = await Promise.all([api.get<any>("/api/admin/groups"), loadAllNodes()]);
-    setGroups(g.groups || []);
-    setNodes(nodes.filter((x: any) => x.enabled && !x.stale));
+    try {
+      const [g, nodes] = await Promise.all([api.get<any>("/api/admin/groups"), loadAllNodes()]);
+      setGroups(g.groups || []);
+      setNodes(nodes.filter((x: any) => x.enabled && !x.stale));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
 
   const protocols = useMemo(() => {
@@ -303,7 +308,9 @@ async function loadAllNodes() {
             </div>
           </div>
 
-          {!groups.length ? (
+          {loading ? (
+            <ListLoading />
+          ) : !groups.length ? (
             <EmptyState title="还没有分组" desc="可先建空分组，后续再加节点并创建订阅入口。" action={<button className="btn" onClick={openCreate}>新建分组</button>} />
           ) : (
             <table>

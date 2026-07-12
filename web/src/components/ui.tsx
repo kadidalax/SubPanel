@@ -267,6 +267,17 @@ export function BatchBar({
     </div>
   );
 }
+export function ListLoading({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="list-loading" aria-busy="true" aria-live="polite">
+      <div className="muted list-loading-label">加载中…</div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton list-loading-row" />
+      ))}
+    </div>
+  );
+}
+
 export function EmptyState({
   title,
   desc,

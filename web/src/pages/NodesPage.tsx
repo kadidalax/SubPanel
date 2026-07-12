@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import { useSelection } from "../lib/selection";
-import { BatchBar, ConfirmDialog, EmptyState, Flash, PageHeader } from "../components/ui";
+import { BatchBar, ConfirmDialog, EmptyState, Flash, ListLoading, PageHeader } from "../components/ui";
 
 type NodeGroup = { id: number; name: string };
 
@@ -18,6 +18,7 @@ export function NodesPage() {
   const [groupId, setGroupId] = useState("all");
   const [sourceId, setSourceId] = useState("all");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const sel = useSelection<number>();
 
@@ -39,16 +40,20 @@ async function loadAllNodes() {
 }
 
   async function load() {
-    const [nodes, g] = await Promise.all([
-      loadAllNodes(),
-      api.get<any>("/api/admin/groups"),
-    ]);
-    setNodes(nodes);
-    setGroups((g.groups || []).map((x: any) => ({ id: Number(x.id), name: String(x.name || "") })));
+    try {
+      const [nodes, g] = await Promise.all([
+        loadAllNodes(),
+        api.get<any>("/api/admin/groups"),
+      ]);
+      setNodes(nodes);
+      setGroups((g.groups || []).map((x: any) => ({ id: Number(x.id), name: String(x.name || "") })));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
 
   const protocols = useMemo(() => {
@@ -210,7 +215,9 @@ async function loadAllNodes() {
           </div>
         </div>
 
-        {!filtered.length ? (
+        {loading ? (
+          <ListLoading />
+        ) : !filtered.length ? (
           <EmptyState title="暂无节点" desc="先去数据源导入，再在这里管理启用状态。" action={<Link className="btn secondary" to="/sources">去数据源</Link>} />
         ) : (
           <table>
