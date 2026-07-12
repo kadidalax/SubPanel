@@ -159,9 +159,16 @@ export function MePage() {
           <button type="button" className={tab === "subs" ? "tab active" : "tab"} onClick={() => setTab("subs")}>订阅</button>
           <button type="button" className={tab === "nodes" ? "tab active" : "tab"} onClick={() => setTab("nodes")}>节点列表</button>
         </div>
-        {tab === "nodes" && rows.length > 1 ? (
+        {tab === "nodes" && rows.length ? (
           <div className="tabs-filters">
-            <select className="input" value={activeSubId ?? ""} onChange={(e) => setActiveSubId(Number(e.target.value))}>
+            <label className="muted">订阅</label>
+            <select
+              className="input filter-select"
+              value={activeSubId ?? ""}
+              onChange={(e) => setActiveSubId(Number(e.target.value))}
+              title="切换订阅"
+              aria-label="切换订阅"
+            >
               {rows.map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
@@ -214,12 +221,16 @@ export function MePage() {
 
               <div className="me-sub-actions">
                 {CLIENT_LINKS.slice(0, 4).map((c) => (
-                  <button key={c.id} className="btn secondary sm" onClick={() => copyFormat(r.id, c.format, c.title)}>
+                  <button
+                    key={c.id}
+                    className={"btn sm" + (c.id === "auto" ? "" : " secondary")}
+                    onClick={() => copyFormat(r.id, c.format, c.title)}
+                  >
                     复制 {c.title}
                   </button>
                 ))}
-                <button className="btn sm" onClick={() => rotate(r.id)}>作废旧链接并复制</button>
                 <button className="btn secondary sm" onClick={() => goNodes(r.id)}>节点列表</button>
+                <button className="btn danger sm me-rotate-btn" onClick={() => rotate(r.id)}>作废旧链接并复制</button>
               </div>
 
               {!tokenMap[r.id] ? (
@@ -237,18 +248,36 @@ export function MePage() {
         </div>
       ) : (
         <div className="card stack">
-          <div className="me-sub-head">
+          <div className="me-sub-head me-nodes-head">
             <div>
-              <h3 className="me-sub-title">{activeSub?.name || "节点列表"}</h3>
+              <h3 className="me-sub-title">节点列表</h3>
               <div className="muted">
                 {activeSub ? `可用节点 ${activeSub.health?.nodeActive ?? "—"} · prefix ${activeSub.tokenPrefix}` : "请先选择订阅"}
               </div>
             </div>
-            {activeSub ? (
-              <span className={badgeClass(activeSub.health?.status || (activeSub.enabled ? "ok" : "blocked"))}>
-                {healthLabel(activeSub.health?.status) || (activeSub.enabled ? "启用" : "停用")}
-              </span>
-            ) : null}
+            <div className="me-nodes-head-right">
+              {rows.length ? (
+                <div className="me-nodes-switch">
+                  <label className="muted">订阅</label>
+                  <select
+                    className="input filter-select"
+                    value={activeSubId ?? ""}
+                    onChange={(e) => setActiveSubId(Number(e.target.value))}
+                    title="切换订阅"
+                    aria-label="切换订阅"
+                  >
+                    {rows.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {activeSub ? (
+                <span className={badgeClass(activeSub.health?.status || (activeSub.enabled ? "ok" : "blocked"))}>
+                  {healthLabel(activeSub.health?.status) || (activeSub.enabled ? "启用" : "停用")}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           {loadingNodes ? (

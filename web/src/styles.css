@@ -1650,6 +1650,9 @@ a.theme-toggle:hover { color: inherit; }
   gap: 8px;
   align-items: center;
 }
+.me-sub-actions .me-rotate-btn {
+  margin-left: auto;
+}
 .me-sub-import { display: grid; gap: 8px; }
 .me-sub-qr {
   flex: 0 0 auto;
@@ -1675,37 +1678,56 @@ a.theme-toggle:hover { color: inherit; }
 }
 .me-nodes-wrap {
   overflow-x: auto;
+  width: 100%;
 }
 .me-nodes-table {
-  width: max-content !important;
-  min-width: 0 !important;
-  max-width: 100%;
-  table-layout: auto;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none;
+  table-layout: fixed;
 }
 .me-nodes-table th,
 .me-nodes-table td {
   font-size: 0.86rem;
   white-space: nowrap;
-  width: 1%;
   vertical-align: middle;
 }
 .me-nodes-table .col-name {
-  width: auto;
-  max-width: 22rem;
+  width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .me-nodes-table .col-proto {
-  width: 1%;
+  width: 14%;
 }
 .me-nodes-table .col-addr {
-  width: auto;
-  max-width: 18rem;
+  width: 30%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .me-nodes-table .col-status {
-  width: 1%;
+  width: 14%;
+}
+.me-nodes-head {
+  align-items: center;
+}
+.me-nodes-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.me-nodes-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.me-nodes-switch .filter-select {
+  height: 30px;
+  padding: 0 22px 0 8px;
+  font-size: 0.82rem;
+  border-radius: 8px;
 }
 @media (max-width: 720px) {
   .me-sub-body {
