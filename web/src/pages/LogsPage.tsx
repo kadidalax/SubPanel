@@ -110,7 +110,7 @@ export function LogsPage() {
           ) : null}
           {tab === "notifications" ? (
             <>
-              <select className="input" style={{ width: 130 }} value={notifStatus} onChange={(e) => setNotifStatus(e.target.value)}>
+              <select className="input filter-select" value={notifStatus} onChange={(e) => setNotifStatus(e.target.value)}>
                 <option value="">全部状态</option>
                 <option value="pending">pending</option>
                 <option value="sent">sent</option>

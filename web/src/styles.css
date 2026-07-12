@@ -554,7 +554,7 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; }
   font-weight: 600;
 }
 .field .hint { color: var(--muted); font-size: 0.78rem; }
-.input, select, textarea, .textarea {
+.input, textarea, .textarea {
   width: 100%;
   border: 1px solid color-mix(in oklab, var(--text) 24%, var(--line));
   border-radius: 12px;
@@ -565,7 +565,18 @@ h1, h2, h3, h4 { letter-spacing: -0.02em; }
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--surface) 65%, transparent);
 }
-select.input, select {
+select,
+select.input {
+  width: auto;
+  max-width: 100%;
+  border: 1px solid color-mix(in oklab, var(--text) 24%, var(--line));
+  border-radius: 12px;
+  padding: 10px 30px 10px 12px;
+  background-color: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--surface) 65%, transparent);
   cursor: pointer;
   background-image:
     linear-gradient(45deg, transparent 50%, color-mix(in oklab, var(--text) 55%, transparent) 50%),
@@ -575,8 +586,8 @@ select.input, select {
     calc(100% - 11px) calc(50% - 2px);
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
-  padding-right: 30px;
   appearance: none;
+  flex: 0 0 auto;
 }
 .textarea, textarea {
   min-height: 140px;
@@ -813,9 +824,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .form-grid .field.compact {
   max-width: 280px;
 }
-.form-grid .field.compact .input,
-.form-grid .field.compact select.input {
+.form-grid .field.compact .input {
   max-width: 280px;
+}
+.form-grid .field.compact select.input {
+  max-width: none;
 }
 .form-grid .field-row-compact {
   grid-column: 1 / -1;
@@ -1084,7 +1097,7 @@ html {
 }
 .list-toolbar-left .filter-select {
   width: auto;
-  max-width: 9.5em;
+  max-width: none;
   min-width: 0;
   height: 30px;
   padding: 0 22px 0 8px;
@@ -1092,7 +1105,6 @@ html {
   line-height: 1.2;
   border-radius: 8px;
   flex: 0 0 auto;
-  field-sizing: content;
 }
 .list-toolbar-left .check-item {
   flex: 0 0 auto;
@@ -1381,7 +1393,7 @@ html {
   row-gap: 8px;
 }
 .modal-list-toolbar .filter-select {
-  max-width: 8.5em;
+  max-width: none;
 }
 .modal-list-toolbar {
   height: 36px !important;

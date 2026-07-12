@@ -268,6 +268,7 @@ async function loadAllNodes() {
       <div className="card table-wrap">
           <div className="list-toolbar">
             <div className="list-toolbar-left">
+              <label className="muted">预览格式</label>
               <select
                 className="input filter-select"
                 value={previewFormat}
