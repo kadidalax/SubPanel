@@ -732,19 +732,20 @@ adminRoutes.get("/nodes", async (c) => {
   }
   const whereSql = where.join(" AND ");
 
-  const [countRes, listRes] = await c.env.DB.batch([
-    c.env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`,
-    ).bind(...binds),
-    c.env.DB.prepare(
-      `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
-              sn.first_seen_at, sn.last_seen_at, s.name AS source_name
-       FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
-       WHERE ${whereSql}
-       ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
-       LIMIT ? OFFSET ?`,
-    ).bind(...binds, limit, offset),
-  ] as any);
+  const countPrep = c.env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`,
+  );
+  const listPrep = c.env.DB.prepare(
+    `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
+            sn.first_seen_at, sn.last_seen_at, s.name AS source_name
+     FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
+     WHERE ${whereSql}
+     ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
+     LIMIT ? OFFSET ?`,
+  );
+  const countStmt = binds.length ? countPrep.bind(...binds) : countPrep;
+  const listStmt = listPrep.bind(...binds, limit, offset);
+  const [countRes, listRes] = await c.env.DB.batch([countStmt, listStmt] as any);
   const total = Number((countRes.results?.[0] as any)?.c || 0);
   const pageRows = listRes.results ?? [];
   const nodeIds = pageRows.map((r: any) => Number(r.id));
