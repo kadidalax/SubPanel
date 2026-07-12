@@ -715,7 +715,8 @@ adminRoutes.get("/nodes", async (c) => {
     let limit = Number(url.searchParams.get("limit") || 500);
     let offset = Number(url.searchParams.get("offset") || 0);
     if (!Number.isFinite(limit) || limit <= 0) limit = 500;
-    if (limit > 2000) limit = 2000;
+    // keep page size under D1 bind limits for any follow-up queries
+    if (limit > 500) limit = 500;
     if (!Number.isFinite(offset) || offset < 0) offset = 0;
     const sourceId = url.searchParams.get("sourceId");
     const q = (url.searchParams.get("q") || "").trim();
@@ -733,12 +734,18 @@ adminRoutes.get("/nodes", async (c) => {
     }
     const whereSql = where.join(" AND ");
 
-    // Avoid prepare().bind() with zero params (D1 throws). Avoid batch here for simpler failures.
     const countSql =
       `SELECT COUNT(*) AS c FROM source_nodes sn JOIN sources s ON s.id = sn.source_id WHERE ${whereSql}`;
+    // Correlated GROUP_CONCAT avoids huge IN (...) bind lists (D1 ~100 variable limit).
     const listSql =
       `SELECT sn.id, sn.source_id, sn.protocol, sn.name, sn.capability_flags, sn.enabled, sn.stale,
-              sn.first_seen_at, sn.last_seen_at, s.name AS source_name
+              sn.first_seen_at, sn.last_seen_at, s.name AS source_name,
+              (
+                SELECT GROUP_CONCAT(g.id || ':' || g.name, '|')
+                FROM group_nodes gn
+                JOIN groups g ON g.id = gn.group_id
+                WHERE gn.node_id = sn.id AND gn.enabled = 1
+              ) AS groups_csv
        FROM source_nodes sn JOIN sources s ON s.id = sn.source_id
        WHERE ${whereSql}
        ORDER BY sn.source_id ASC, sn.source_order ASC, sn.id ASC
@@ -750,41 +757,27 @@ adminRoutes.get("/nodes", async (c) => {
     const total = Number(totalRow?.c || 0);
 
     const listRes = await c.env.DB.prepare(listSql).bind(...binds, limit, offset).all<any>();
-    const pageRows = listRes.results ?? [];
-    const nodeIds = pageRows.map((r: any) => Number(r.id)).filter((n: number) => Number.isFinite(n) && n > 0);
-
-    const groupByNode = new Map<number, Array<{ id: number; name: string }>>();
-    if (nodeIds.length) {
-      // Chunk IN lists to stay well under D1 bind limits.
-      const chunkSize = 200;
-      for (let i = 0; i < nodeIds.length; i += chunkSize) {
-        const chunk = nodeIds.slice(i, i + chunkSize);
-        const ph = chunk.map(() => "?").join(",");
-        const gres = await c.env.DB.prepare(
-          `SELECT gn.node_id AS node_id, g.id AS id, g.name AS name
-           FROM group_nodes gn JOIN groups g ON g.id = gn.group_id
-           WHERE gn.node_id IN (${ph}) AND gn.enabled = 1`,
-        )
-          .bind(...chunk)
-          .all<any>();
-        for (const r of gres.results ?? []) {
-          const nid = Number(r.node_id);
-          const list = groupByNode.get(nid) || [];
-          list.push({ id: Number(r.id), name: String(r.name) });
-          groupByNode.set(nid, list);
+    const nodes = (listRes.results ?? []).map((row: any) => {
+      const groups: Array<{ id: number; name: string }> = [];
+      if (row.groups_csv) {
+        for (const part of String(row.groups_csv).split("|")) {
+          if (!part) continue;
+          const idx = part.indexOf(":");
+          if (idx < 0) continue;
+          const id = Number(part.slice(0, idx));
+          const name = part.slice(idx + 1);
+          if (Number.isFinite(id)) groups.push({ id, name });
         }
       }
-    }
-
-    const nodes = pageRows.map((row: any) => {
-      const groups = groupByNode.get(Number(row.id)) || [];
-      return { ...row, groups, groupIds: groups.map((g) => g.id) };
+      const { groups_csv, ...rest } = row;
+      return { ...rest, groups, groupIds: groups.map((g) => g.id) };
     });
     return jsonOk({ nodes, total, limit, offset });
   } catch (err) {
     return jsonError(500, "nodes_query_failed", err instanceof Error ? err.message : "nodes query failed");
   }
 });
+
 adminRoutes.post("/nodes/:id/enabled", async (c) => {
   const gate = await requireStaff(c);
   if ("error" in gate) return gate.error;

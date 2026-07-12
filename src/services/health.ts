@@ -104,41 +104,45 @@ export async function buildSubscriptionHealthLiteBatch(
   const out = new Map<number, LiteHealth>();
   if (!ids.length) return out;
 
-  const ph = ids.map(() => "?").join(",");
   const deviceUsed = new Map<number, number>();
   const activeBySub = new Map<number, number>();
   const totalBySub = new Map<number, number>();
-
-  const [dres, ares, tres] = await env.DB.batch([
-    env.DB.prepare(
-      `SELECT subscription_id AS sid, COUNT(*) AS c FROM subscription_devices
-       WHERE subscription_id IN (${ph}) AND last_seen_at >= ?
-       GROUP BY subscription_id`,
-    ).bind(...ids, windowStart),
-    env.DB.prepare(
-      `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
-       FROM subscription_groups sg
-       JOIN group_nodes gn ON gn.group_id = sg.group_id AND gn.enabled = 1
-       JOIN source_nodes sn ON sn.id = gn.node_id AND sn.enabled = 1 AND sn.stale = 0
-       WHERE sg.subscription_id IN (${ph})
-       GROUP BY sg.subscription_id`,
-    ).bind(...ids),
-    env.DB.prepare(
-      `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
-       FROM subscription_groups sg
-       JOIN group_nodes gn ON gn.group_id = sg.group_id
-       JOIN source_nodes sn ON sn.id = gn.node_id
-       WHERE sg.subscription_id IN (${ph})
-       GROUP BY sg.subscription_id`,
-    ).bind(...ids),
-  ] as any);
-  for (const r of (dres.results ?? []) as any[]) deviceUsed.set(Number(r.sid), Number(r.c));
-  for (const r of (ares.results ?? []) as any[]) activeBySub.set(Number(r.sid), Number(r.c));
-  for (const r of (tres.results ?? []) as any[]) totalBySub.set(Number(r.sid), Number(r.c));
+  const chunkSize = 80;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const ph = chunk.map(() => "?").join(",");
+    const [dres, ares, tres] = await env.DB.batch([
+      env.DB.prepare(
+        `SELECT subscription_id AS sid, COUNT(*) AS c FROM subscription_devices
+         WHERE subscription_id IN (${ph}) AND last_seen_at >= ?
+         GROUP BY subscription_id`,
+      ).bind(...chunk, windowStart),
+      env.DB.prepare(
+        `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
+         FROM subscription_groups sg
+         JOIN group_nodes gn ON gn.group_id = sg.group_id AND gn.enabled = 1
+         JOIN source_nodes sn ON sn.id = gn.node_id AND sn.enabled = 1 AND sn.stale = 0
+         WHERE sg.subscription_id IN (${ph})
+         GROUP BY sg.subscription_id`,
+      ).bind(...chunk),
+      env.DB.prepare(
+        `SELECT sg.subscription_id AS sid, COUNT(DISTINCT sn.id) AS c
+         FROM subscription_groups sg
+         JOIN group_nodes gn ON gn.group_id = sg.group_id
+         JOIN source_nodes sn ON sn.id = gn.node_id
+         WHERE sg.subscription_id IN (${ph})
+         GROUP BY sg.subscription_id`,
+      ).bind(...chunk),
+    ] as any);
+    for (const r of (dres.results ?? []) as any[]) deviceUsed.set(Number(r.sid), Number(r.c));
+    for (const r of (ares.results ?? []) as any[]) activeBySub.set(Number(r.sid), Number(r.c));
+    for (const r of (tres.results ?? []) as any[]) totalBySub.set(Number(r.sid), Number(r.c));
+  }
 
   const missingNodeStats = ids.filter((id) => !activeBySub.has(id) && !totalBySub.has(id));
-  if (missingNodeStats.length) {
-    const ph2 = missingNodeStats.map(() => "?").join(",");
+  for (let i = 0; i < missingNodeStats.length; i += chunkSize) {
+    const chunk = missingNodeStats.slice(i, i + chunkSize);
+    const ph2 = chunk.map(() => "?").join(",");
     const legacy = await env.DB.prepare(
       `SELECT s.id AS sid,
               (SELECT COUNT(DISTINCT sn.id) FROM group_nodes gn
@@ -149,7 +153,7 @@ export async function buildSubscriptionHealthLiteBatch(
                  WHERE gn.group_id = s.group_id) AS total_c
        FROM subscriptions s WHERE s.id IN (${ph2})`,
     )
-      .bind(...missingNodeStats)
+      .bind(...chunk)
       .all<any>();
     for (const r of legacy.results ?? []) {
       activeBySub.set(Number(r.sid), Number(r.active_c || 0));

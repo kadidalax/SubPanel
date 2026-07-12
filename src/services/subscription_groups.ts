@@ -60,34 +60,39 @@ export async function listGroupsForSubscriptionIds(
   const ids = [...new Set(subscriptionIds.map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   if (!ids.length) return out;
 
-  const ph = ids.map(() => "?").join(",");
-  const res = await env.DB.prepare(
-    `SELECT sg.subscription_id AS subscription_id, g.id AS id, g.name AS name, sg.sort_order AS sort_order
-     FROM subscription_groups sg
-     JOIN groups g ON g.id = sg.group_id
-     WHERE sg.subscription_id IN (${ph})
-     ORDER BY sg.subscription_id ASC, sg.sort_order ASC, g.id ASC`,
-  )
-    .bind(...ids)
-    .all<any>();
-
-  for (const r of res.results ?? []) {
-    const sid = Number(r.subscription_id);
-    const list = out.get(sid) || [];
-    list.push({ id: Number(r.id), name: String(r.name), sortOrder: Number(r.sort_order || 0) });
-    out.set(sid, list);
+  // D1/SQLite bound variable limit is low (~100). Chunk aggressively.
+  const chunkSize = 80;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const ph = chunk.map(() => "?").join(",");
+    const res = await env.DB.prepare(
+      `SELECT sg.subscription_id AS subscription_id, g.id AS id, g.name AS name, sg.sort_order AS sort_order
+       FROM subscription_groups sg
+       JOIN groups g ON g.id = sg.group_id
+       WHERE sg.subscription_id IN (${ph})
+       ORDER BY sg.subscription_id ASC, sg.sort_order ASC, g.id ASC`,
+    )
+      .bind(...chunk)
+      .all<any>();
+    for (const r of res.results ?? []) {
+      const sid = Number(r.subscription_id);
+      const list = out.get(sid) || [];
+      list.push({ id: Number(r.id), name: String(r.name), sortOrder: Number(r.sort_order || 0) });
+      out.set(sid, list);
+    }
   }
 
   const missing = ids.filter((id) => !out.has(id));
-  if (missing.length) {
-    const ph2 = missing.map(() => "?").join(",");
+  for (let i = 0; i < missing.length; i += chunkSize) {
+    const chunk = missing.slice(i, i + chunkSize);
+    const ph2 = chunk.map(() => "?").join(",");
     const legacy = await env.DB.prepare(
       `SELECT s.id AS subscription_id, g.id AS id, g.name AS name
        FROM subscriptions s
        JOIN groups g ON g.id = s.group_id
        WHERE s.id IN (${ph2})`,
     )
-      .bind(...missing)
+      .bind(...chunk)
       .all<any>();
     for (const r of legacy.results ?? []) {
       const sid = Number(r.subscription_id);
