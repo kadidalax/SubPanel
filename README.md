@@ -27,7 +27,9 @@
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明；免费账号注意全账号 Cron 配额）。
 4. 打开 Worker 域名 → 面板会提示 **初始化数据库**（一键创建表，已有表则跳过、不删数据）→ **初始化管理员** → 开始使用。
 
-订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|surge`）。
+订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|uri-base64|surge`）。
+
+浏览器打开默认同页展示正文（`inline`）。URI 列表默认导出**标准分享链**（含 hy2/naive 证书字段规范化）；v2rayN 若需原样 `v2rayn://` 包装可加 `?vendor=v2rayn`。
 
 ### 流量说明
 

@@ -16,7 +16,12 @@ export function renderProfile(
   nodes: NormalizedNode[],
   profileTitle = "Sub Panel",
   opts: { preferRawV2rayn?: boolean } = {},
-): { body: string; skipped: Array<{ name: string; reason: string }>; contentType: string } {
+): {
+  body: string;
+  skipped: Array<{ name: string; reason: string }>;
+  contentType: string;
+  meta?: { certNodes: number; v2raynFallback: number };
+} {
   if (format === "mihomo") {
     return { ...renderMihomo(nodes, profileTitle), contentType: "text/yaml; charset=utf-8" };
   }
@@ -32,9 +37,11 @@ export function renderProfile(
       body: toBase64(uri.body),
       skipped: uri.skipped,
       contentType: "text/plain; charset=utf-8",
+      meta: uri.meta,
     };
   }
-  return { ...renderUriList(nodes, opts), contentType: "text/plain; charset=utf-8" };
+  const uri = renderUriList(nodes, opts);
+  return { ...uri, contentType: "text/plain; charset=utf-8" };
 }
 
 export function normalizeDeliveryFormat(raw: string | null | undefined): {

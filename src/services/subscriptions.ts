@@ -526,6 +526,8 @@ export async function serveSubscription(env: Env, request: Request, token: strin
   let body = "";
   let contentType = "text/plain; charset=utf-8";
   let skippedCount = 0;
+  let uriCertNodes = 0;
+  let uriV2raynFallback = 0;
 
   if (passthrough && String(passthrough.passthrough_format || "") === format) {
     body = String(passthrough.manual_content || "");
@@ -550,6 +552,8 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     body = rendered.body;
     contentType = rendered.contentType;
     skippedCount = rendered.skipped.length;
+    uriCertNodes = Number(rendered.meta?.certNodes || 0);
+    uriV2raynFallback = Number(rendered.meta?.v2raynFallback || 0);
   }
   const etagValue = (
     await sha256Text([sub.id, sub.revision, groupIdList.join(","), format, body].join(":"))
@@ -589,6 +593,8 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     "X-Sub-Skipped-Nodes": String(skippedCount),
     "X-Sub-Client-Family": detected.family,
     "X-Sub-Format": format,
+    "X-Sub-Cert-Nodes": String(uriCertNodes),
+    "X-Sub-Uri-V2rayn-Fallback": String(uriV2raynFallback),
     "Content-Disposition": `inline; filename="${asciiName}.${fileExt}"; filename*=UTF-8''${utf8Name}`,
   };
   if (formatFallback) headers["X-Sub-Format-Fallback"] = "1";
