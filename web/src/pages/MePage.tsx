@@ -40,22 +40,27 @@ export function MePage() {
   const [tab, setTab] = useState<MeTab>("subs");
   const [activeSubId, setActiveSubId] = useState<number | null>(null);
   const [nodes, setNodes] = useState<MeNode[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadingNodes, setLoadingNodes] = useState(false);
   const [qr, setQr] = useState<QrState | null>(null);
 
   async function load() {
-    const res = await api.get<any>("/api/user/subscriptions");
-    const list = res.subscriptions || [];
-    setRows(list);
-    const map: Record<number, string> = {};
-    for (const r of list) {
-      const cached = loadSubToken(r.id);
-      if (cached) map[r.id] = cached;
-    }
-    setTokenMap(map);
-    if (list.length && activeSubId == null) setActiveSubId(list[0].id);
-    if (activeSubId != null && !list.some((r: any) => r.id === activeSubId)) {
-      setActiveSubId(list[0]?.id ?? null);
+    try {
+      const res = await api.get<any>("/api/user/subscriptions");
+      const list = res.subscriptions || [];
+      setRows(list);
+      const map: Record<number, string> = {};
+      for (const r of list) {
+        const cached = loadSubToken(r.id);
+        if (cached) map[r.id] = cached;
+      }
+      setTokenMap(map);
+      if (list.length && activeSubId == null) setActiveSubId(list[0].id);
+      if (activeSubId != null && !list.some((r: any) => r.id === activeSubId)) {
+        setActiveSubId(list[0]?.id ?? null);
+      }
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -181,7 +186,8 @@ export function MePage() {
 
       {tab === "subs" ? (
         <div className="card-list">
-          {rows.map((r) => (
+          {loading ? <ListLoading rows={3} /> : null}
+          {!loading && rows.map((r) => (
             <div className="card stack me-sub-card" key={r.id}>
               <div className="me-sub-head">
                 <div>
@@ -238,7 +244,7 @@ export function MePage() {
               ) : null}
             </div>
           ))}
-          {!rows.length ? (
+          {!loading && !rows.length ? (
             <div className="card empty">
               <div className="empty-ico" aria-hidden="true" />
               <h3>暂无订阅</h3>
@@ -280,8 +286,8 @@ export function MePage() {
             </div>
           </div>
 
-          {loadingNodes ? (
-            <div className="muted">加载节点中…</div>
+          {loading || loadingNodes ? (
+            <ListLoading />
           ) : nodes.length ? (
             <div className="table-wrap me-nodes-wrap">
               <table className="table me-nodes-table">
@@ -318,7 +324,7 @@ export function MePage() {
               </table>
             </div>
           ) : (
-            <div className="muted">{rows.length ? "该订阅分组暂无节点。" : "暂无订阅。"}</div>
+            <div className="muted">{!rows.length ? "暂无订阅。" : "该订阅分组暂无节点。"}</div>
           )}
         </div>
       )}
