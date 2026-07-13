@@ -23,7 +23,7 @@
 全部在 Cloudflare / 面板里完成，**无需配置 Secret**（生产建议补 `CREDENTIALS_KEY` 保护远程源 URL）：
 
 1. 点击上方 **Deploy to Cloudflare**，创建应用。
-2. Cloudflare 自动创建并绑定 **D1** 到 Worker 的 `DB` 绑定。
+2. Cloudflare 根据无账号 ID 的 `DB` 绑定自动创建并复用 **D1**。
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明；免费账号注意全账号 Cron 配额）。
 4. 打开 Worker 域名 → **初始化数据库**（按 `migrations/` 创建表，已有表则跳过、不删数据）→ **初始化管理员** → 开始使用。
 
