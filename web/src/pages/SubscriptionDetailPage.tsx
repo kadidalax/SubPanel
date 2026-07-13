@@ -242,14 +242,13 @@ export function SubscriptionDetailPage() {
                 return (
                   <div className="link-row" style={{ alignItems: "center" }}>
                     <div>
-                      <strong>扫码 / 一键导入</strong>
+                      <strong>一键导入</strong>
                       <div className="muted" style={{ marginTop: 4, fontSize: "0.86rem" }}>基于 auto 链接</div>
                       <div className="toolbar" style={{ marginTop: 8 }}>
                         <a className="btn secondary sm" href={imp.clash}>Clash 导入</a>
                         <a className="btn secondary sm" href={imp.singbox}>sing-box 导入</a>
                       </div>
                     </div>
-                    <img className="subscription-inline-qr" src={imp.qr} alt="通用订阅二维码" />
                   </div>
                 );
               })() : null}

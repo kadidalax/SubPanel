@@ -760,15 +760,6 @@ tbody tr:last-child td { border-bottom: 0; }
   word-break: break-all;
   font-size: 0.82rem;
 }
-.subscription-inline-qr {
-  width: min(152px, 40vw);
-  height: auto;
-  aspect-ratio: 1;
-  flex: 0 0 auto;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #fff;
-}
 .tabs, .tab-row {
   display: flex;
   gap: 6px;
