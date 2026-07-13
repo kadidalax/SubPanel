@@ -456,7 +456,7 @@ adminRoutes.get("/groups/:id/preview", async (c) => {
     .bind(groupId)
     .all<{ normalized_json: string; name: string }>();
   const nodes = (res.results ?? []).map((r) => JSON.parse(r.normalized_json));
-  const rendered = renderProfile(format as any, nodes, readVars(c.env).siteName);
+  const rendered = await renderProfile(format as any, nodes, readVars(c.env).siteName);
   return jsonOk({
     format,
     nodeCount: nodes.length,

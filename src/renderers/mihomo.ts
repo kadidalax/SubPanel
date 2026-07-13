@@ -1,5 +1,6 @@
 import YAML from "yaml";
 import type { NormalizedNode } from "../parsers/types.ts";
+import { normalizeCert } from "./uri.ts";
 
 function firstNonEmpty(...vals: unknown[]): string | undefined {
   for (const v of vals) {
@@ -24,7 +25,51 @@ function toMihomoRealityOpts(reality: unknown): Record<string, unknown> | null |
   return opts;
 }
 
-function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
+function normalizePin(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const hex = raw.replace(/:/g, "").trim();
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) return undefined;
+  return hex.toUpperCase().replace(/(.{2})(?=.)/g, "$1:");
+}
+
+/** mihomo cert pin = SHA256 of DER, openssl-style. ca-str is not a trusted CA pin field. */
+export async function certSha256Fingerprint(input: unknown): Promise<string | undefined> {
+  const asPin = normalizePin(String(input ?? ""));
+  if (asPin) return asPin;
+  const norm = normalizeCert(String(input ?? ""));
+  if (!norm) return undefined;
+  const body = norm.pem
+    .split("\n")
+    .filter((line) => line && !/CERTIFICATE/i.test(line))
+    .join("")
+    .replace(/\s+/g, "");
+  if (!body) return undefined;
+  try {
+    const bin = atob(body);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+  } catch {
+    return undefined;
+  }
+}
+
+async function nodeCertFingerprint(node: NormalizedNode): Promise<string | undefined> {
+  const tls = node.tls || {};
+  const extras = node.extras || {};
+  const pin = firstNonEmpty(
+    extras.pinSHA256,
+    extras.pinSha256,
+    extras.certificateFingerprint,
+    (tls as any).certificateFingerprint,
+  );
+  const fromPin = normalizePin(pin);
+  if (fromPin) return fromPin;
+  return certSha256Fingerprint(extras.certificate || tls.certificate);
+}
+
+async function toMihomoProxy(node: NormalizedNode): Promise<Record<string, unknown> | null> {
   if (!node.capability.includes("mihomo")) return null;
   const base: Record<string, unknown> = {
     name: node.name,
@@ -36,6 +81,8 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
   const tls = node.tls || {};
   const transport = node.transport || {};
   const extras = node.extras || {};
+  const certFp = await nodeCertFingerprint(node);
+  const skipCert = Boolean(tls.insecure || tls.allowInsecure);
   switch (node.protocol) {
     case "ss":
     case "ss2022": {
@@ -67,8 +114,8 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         sni: tls.serverName,
         "client-fingerprint": tls.fingerprint,
         "reality-opts": realityOpts,
-        "skip-cert-verify": Boolean(tls.allowInsecure || tls.insecure),
-        "ca-str": (node.extras || {}).certificate || tls.certificate,
+        "skip-cert-verify": skipCert,
+        fingerprint: certFp,
       };
     }
     case "vmess":
@@ -81,7 +128,12 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         tls: Boolean(tls.enabled),
         servername: tls.serverName,
         network: transport.type || "tcp",
-        "ws-opts": transport.type === "ws" ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined } : undefined,
+        "skip-cert-verify": skipCert,
+        fingerprint: certFp,
+        "ws-opts":
+          transport.type === "ws"
+            ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined }
+            : undefined,
       };
     case "vless": {
       const realityOpts = toMihomoRealityOpts(tls.reality);
@@ -96,9 +148,12 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         network: transport.type || "tcp",
         "client-fingerprint": tls.fingerprint,
         "reality-opts": realityOpts,
-        "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
-        "ca-str": (node.extras || {}).certificate || tls.certificate,
-        "ws-opts": transport.type === "ws" ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined } : undefined,
+        "skip-cert-verify": skipCert,
+        fingerprint: certFp,
+        "ws-opts":
+          transport.type === "ws"
+            ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined }
+            : undefined,
         "grpc-opts": transport.type === "grpc" ? { "grpc-service-name": transport.serviceName } : undefined,
       };
     }
@@ -108,11 +163,12 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         type: "hysteria2",
         password: auth.password,
         sni: tls.serverName,
-        "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
-        ports: (node.extras || {}).ports || (node.extras || {}).mport,
-        "ca-str": (node.extras || {}).certificate || tls.certificate,
-        obfs: (node.extras || {}).obfs,
-        "obfs-password": (node.extras || {}).obfsPassword,
+        "skip-cert-verify": skipCert,
+        ports: extras.ports || extras.mport,
+        fingerprint: certFp,
+        alpn: tls.alpn && Array.isArray(tls.alpn) && tls.alpn.length ? tls.alpn : ["h3"],
+        obfs: extras.obfs,
+        "obfs-password": extras.obfsPassword,
       };
     case "tuic":
       return {
@@ -122,7 +178,9 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         password: auth.password,
         sni: tls.serverName,
         alpn: tls.alpn,
-        "congestion-controller": (node.extras || {}).congestionControl || "bbr",
+        fingerprint: certFp,
+        "skip-cert-verify": skipCert,
+        "congestion-controller": extras.congestionControl || "bbr",
       };
     case "anytls":
       return {
@@ -131,8 +189,8 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         password: auth.password,
         sni: tls.serverName,
         "client-fingerprint": tls.fingerprint,
-        "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
-        "ca-str": (node.extras || {}).certificate || tls.certificate,
+        "skip-cert-verify": skipCert,
+        fingerprint: certFp,
       };
     case "naive":
       return null;
@@ -161,26 +219,42 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         obfs: extras.obfs,
         sni: tls.serverName,
         alpn: tls.alpn,
-        "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
+        fingerprint: certFp,
+        "skip-cert-verify": skipCert,
       };
     case "socks":
       return { ...base, type: "socks5", username: auth.username, password: auth.password };
     case "http":
-      return { ...base, type: "http", username: auth.username, password: auth.password, tls: Boolean(tls.enabled) };
+      return {
+        ...base,
+        type: "http",
+        username: auth.username,
+        password: auth.password,
+        tls: Boolean(tls.enabled),
+        "skip-cert-verify": skipCert,
+        fingerprint: certFp,
+      };
     default:
       return null;
   }
 }
 
-export function renderMihomo(nodes: NormalizedNode[], profileTitle = "Sub Panel"): { body: string; skipped: Array<{ name: string; reason: string }> } {
+export async function renderMihomo(
+  nodes: NormalizedNode[],
+  profileTitle = "Sub Panel",
+): Promise<{ body: string; skipped: Array<{ name: string; reason: string }> }> {
   const proxies: Record<string, unknown>[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
   for (const node of nodes) {
-    const proxy = toMihomoProxy(node);
+    const proxy = await toMihomoProxy(node);
     if (!proxy) {
       const reason = node.tls?.reality ? "mihomo_reality_missing_public_key" : "mihomo_unsupported";
       skipped.push({ name: node.name, reason });
       continue;
+    }
+    // Drop undefined fields so YAML stays clean.
+    for (const key of Object.keys(proxy)) {
+      if (proxy[key] === undefined) delete proxy[key];
     }
     proxies.push(proxy);
   }
@@ -199,4 +273,3 @@ export function renderMihomo(nodes: NormalizedNode[], profileTitle = "Sub Panel"
   };
   return { body: YAML.stringify(doc), skipped };
 }
-

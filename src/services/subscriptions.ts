@@ -544,7 +544,7 @@ export async function serveSubscription(env: Env, request: Request, token: strin
     const preferRawV2rayn =
       url.searchParams.get("vendor") === "v2rayn" ||
       (uaLower.includes("v2rayn") && !uaLower.includes("nekobox") && !uaLower.includes("v2rayng"));
-    const rendered = renderProfile(format, nodes, vars.siteName, { preferRawV2rayn });
+    const rendered = await renderProfile(format, nodes, vars.siteName, { preferRawV2rayn });
     if (!rendered.body.trim()) {
       // keep opaque to avoid confirming token validity + node state
       return opaque404();

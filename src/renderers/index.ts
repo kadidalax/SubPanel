@@ -11,19 +11,19 @@ function toBase64(text: string): string {
   return btoa(bin);
 }
 
-export function renderProfile(
+export async function renderProfile(
   format: DeliveryFormat,
   nodes: NormalizedNode[],
   profileTitle = "Sub Panel",
   opts: { preferRawV2rayn?: boolean } = {},
-): {
+): Promise<{
   body: string;
   skipped: Array<{ name: string; reason: string }>;
   contentType: string;
   meta?: { certNodes: number; v2raynFallback: number };
-} {
+}> {
   if (format === "mihomo") {
-    return { ...renderMihomo(nodes, profileTitle), contentType: "text/yaml; charset=utf-8" };
+    return { ...(await renderMihomo(nodes, profileTitle)), contentType: "text/yaml; charset=utf-8" };
   }
   if (format === "singbox") {
     return { ...renderSingbox(nodes), contentType: "application/json; charset=utf-8" };

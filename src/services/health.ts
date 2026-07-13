@@ -268,7 +268,7 @@ export async function buildSubscriptionHealth(env: Env, sub: any): Promise<Subsc
   const skipByProtocol: Record<string, number> = {};
   for (const format of FORMATS) {
     const baseFormat: OutputFormat | "uri-base64" = format;
-    const rendered = renderProfile(baseFormat === "uri-base64" ? "uri" : baseFormat, nodes);
+    const rendered = await renderProfile(baseFormat === "uri-base64" ? "uri" : baseFormat, nodes);
     byFormat[format] = {
       renderable: nodes.length - rendered.skipped.length,
       skipped: rendered.skipped.slice(0, 50),
