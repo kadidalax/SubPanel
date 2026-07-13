@@ -3,7 +3,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { badgeClass, bytesToGbInput, fmtBytes, fmtTime, gbToBytes, healthLabel } from "../lib/format";
 import { buildImportLinks, buildSubUrl, CLIENT_LINKS, copyText, loadSubToken, saveSubToken } from "../lib/sub";
-import { Flash } from "../components/ui";
+import { Flash, Modal } from "../components/ui";
+
+type QrState = {
+  title: string;
+  url: string;
+  qr: string;
+  clash?: string;
+  singbox?: string;
+};
 
 export function SubscriptionDetailPage() {
   const { id } = useParams();
@@ -17,6 +25,7 @@ export function SubscriptionDetailPage() {
   const [deviceLimit, setDeviceLimit] = useState("");
   const [manualUsed, setManualUsed] = useState("");
   const [trafficLimit, setTrafficLimit] = useState("");
+  const [qr, setQr] = useState<QrState | null>(null);
 
   async function load() {
     const res = await api.get<any>(`/api/admin/subscriptions/${subId}`);
@@ -48,6 +57,17 @@ export function SubscriptionDetailPage() {
     return CLIENT_LINKS.map((c) => ({ ...c, url: buildSubUrl(token, c.format) }));
   }, [token]);
 
+  async function showCopied(url: string, title: string, successMsg = `已复制：${title}`) {
+    const imp = buildImportLinks(url);
+    setQr({ title, url, qr: imp.qr, clash: imp.clash, singbox: imp.singbox });
+    try {
+      await copyText(url);
+      setMsg(successMsg);
+    } catch {
+      setMsg(`${title} 二维码已打开，复制失败可手动复制链接`);
+    }
+  }
+
   async function copyCurrent() {
     setError("");
     try {
@@ -65,8 +85,7 @@ export function SubscriptionDetailPage() {
         return;
       }
       const url = buildSubUrl(tkn, "auto");
-      await copyText(url);
-      setMsg("已复制通用订阅链接（未改动 token）");
+      await showCopied(url, "通用自动", "已复制通用订阅链接（未改动 token）");
     } catch (err) {
       setError(err instanceof Error ? err.message : "复制失败");
     }
@@ -80,8 +99,7 @@ export function SubscriptionDetailPage() {
       saveSubToken(subId, res.token);
       setToken(res.token);
       const url = buildSubUrl(res.token, "auto");
-      await copyText(url);
-      setMsg("已轮换：旧链接作废，新链接已复制");
+      await showCopied(url, "通用自动", "已轮换：旧链接作废，新链接已复制");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "轮换失败");
@@ -89,12 +107,8 @@ export function SubscriptionDetailPage() {
   }
 
   async function copyLink(url: string, title: string) {
-    try {
-      await copyText(url);
-      setMsg(`已复制：${title}`);
-    } catch {
-      setError("复制失败，请手动选择链接");
-    }
+    setError("");
+    await showCopied(url, title);
   }
 
   async function toggleEnabled() {
@@ -235,7 +249,7 @@ export function SubscriptionDetailPage() {
                         <a className="btn secondary sm" href={imp.singbox}>sing-box 导入</a>
                       </div>
                     </div>
-                    <img src={imp.qr} alt="qr" width={112} height={112} style={{ borderRadius: 12, border: "1px solid var(--line)" }} />
+                    <img className="subscription-inline-qr" src={imp.qr} alt="通用订阅二维码" />
                   </div>
                 );
               })() : null}
@@ -308,6 +322,30 @@ export function SubscriptionDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <Modal
+        open={!!qr}
+        title={qr ? `二维码 · ${qr.title}` : "二维码"}
+        description="可直接扫码导入，也可手动复制链接。"
+        onClose={() => setQr(null)}
+        footer={
+          <>
+            {qr?.clash ? <a className="btn secondary" href={qr.clash}>Clash 导入</a> : null}
+            {qr?.singbox ? <a className="btn secondary" href={qr.singbox}>sing-box 导入</a> : null}
+            <button type="button" className="btn secondary" onClick={() => qr && copyText(qr.url).then(() => setMsg("已再次复制链接"))}>再复制链接</button>
+            <button type="button" className="btn" onClick={() => setQr(null)}>关闭</button>
+          </>
+        }
+      >
+        {qr ? (
+          <div className="me-qr-modal">
+            <div className="me-qr-box">
+              <img src={qr.qr} alt={`${qr.title} 二维码`} />
+            </div>
+            <div className="mono me-qr-url">{qr.url}</div>
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 }

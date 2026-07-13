@@ -334,7 +334,7 @@ export function MePage() {
       <Modal
         open={!!qr}
         title={qr ? `二维码 · ${qr.title}` : "二维码"}
-        description="链接已复制到剪贴板，可直接扫码导入。"
+        description="可直接扫码导入，也可手动复制链接。"
         onClose={() => setQr(null)}
         footer={
           <>
@@ -348,7 +348,7 @@ export function MePage() {
         {qr ? (
           <div className="me-qr-modal">
             <div className="me-qr-box">
-              <img src={qr.qr} alt="subscription qr" width={168} height={168} />
+              <img src={qr.qr} alt={`${qr.title} 二维码`} />
             </div>
             <div className="mono me-qr-url">{qr.url}</div>
           </div>
