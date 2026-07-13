@@ -23,9 +23,11 @@
 全部在 Cloudflare / 面板里完成，**无需配置 Secret**（生产建议补 `CREDENTIALS_KEY` 保护远程源 URL）：
 
 1. 点击上方 **Deploy to Cloudflare**，创建应用。
-2. 在 Dashboard 创建并绑定 **D1**：库名 `subpanel` → Worker 绑定 `DB`（fork 后请改掉示例 `database_id`）。
+2. Cloudflare 自动创建并绑定 **D1** 到 Worker 的 `DB` 绑定。
 3. 确认 **Cron** `*/5 * * * *`（配置文件已声明；免费账号注意全账号 Cron 配额）。
-4. 打开 Worker 域名 → 面板会提示 **初始化数据库**（一键创建表，已有表则跳过、不删数据）→ **初始化管理员** → 开始使用。
+4. 打开 Worker 域名 → **初始化数据库**（按 `migrations/` 创建表，已有表则跳过、不删数据）→ **初始化管理员** → 开始使用。
+
+生产数据存储在 Cloudflare D1，不在仓库文件中。`migrations/` 是唯一数据库结构来源；本地开发数据库由 Wrangler 存在 `.wrangler/state/`，可随时重建。
 
 订阅地址：`https://你的域名/sub/<token>`（可选 `?format=mihomo|singbox|uri|uri-base64|surge`）。
 

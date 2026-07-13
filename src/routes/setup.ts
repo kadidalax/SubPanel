@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { applySchema, ensureSchemaPatches, getSchemaStatus } from "../db/schema.ts";
+import { applySchema, getSchemaStatus } from "../db/schema.ts";
 import { jsonError, jsonOk } from "../util/json.ts";
 import { sameOrigin } from "../util/request.ts";
 
@@ -23,7 +23,7 @@ setupRoutes.get("/status", async (c) => {
   }
 });
 
-/** One-click schema init for empty / incomplete D1. Idempotent, no DROP. */
+/** One-click schema init for a fresh D1. Idempotent, no DROP. */
 setupRoutes.post("/init-db", async (c) => {
   const request = c.req.raw;
   const url = new URL(request.url);
@@ -35,7 +35,6 @@ setupRoutes.post("/init-db", async (c) => {
     return jsonError(503, "not_ready", err instanceof Error ? err.message : "database not bound");
   }
 
-  await ensureSchemaPatches(c.env.DB);
   const before = await getSchemaStatus(c.env.DB);
   if (before.ready) {
     return jsonOk({ ready: true, applied: false, missing: [], tableCount: before.existing.length });

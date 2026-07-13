@@ -10,13 +10,7 @@
     "head_sampling_rate": 0.1
   },
   "vars": {
-    "SITE_NAME": "Sub Panel",
-    "PASSWORD_ITERATIONS": "100000",
-    "SESSION_IDLE_MS": "86400000",
-    "SESSION_ABSOLUTE_MS": "604800000",
-    "DEVICE_WINDOW_MS": "604800000",
-    "ACCESS_LOG_RETENTION_DAYS": "7",
-    "SESSION_TOUCH_MIN_MS": "60000"
+    "SITE_NAME": "Sub Panel"
   },
   "d1_databases": [
     {

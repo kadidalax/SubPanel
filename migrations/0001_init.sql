@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS source_nodes (
   capability_flags TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
   stale INTEGER NOT NULL DEFAULT 0,
+  source_order INTEGER NOT NULL DEFAULT 0,
   first_seen_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
 );
@@ -86,6 +87,8 @@ CREATE TABLE IF NOT EXISTS source_nodes (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_source_nodes_key ON source_nodes(source_id, node_key);
 
 CREATE INDEX IF NOT EXISTS idx_source_nodes_active ON source_nodes(source_id, enabled, stale);
+
+CREATE INDEX IF NOT EXISTS idx_source_nodes_order ON source_nodes(source_id, source_order, id);
 
 CREATE TABLE IF NOT EXISTS source_usage_snapshots (
   id INTEGER PRIMARY KEY,
@@ -126,6 +129,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL,
   token_prefix TEXT NOT NULL,
+  encrypted_token TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   expire_at INTEGER,
   device_limit INTEGER,
@@ -148,6 +152,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_token_hash ON subscriptions(
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_group_id ON subscriptions(group_id);
+
+CREATE TABLE IF NOT EXISTS subscription_groups (
+  subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subscription_id, group_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscription_groups_group ON subscription_groups(group_id);
 
 CREATE TABLE IF NOT EXISTS subscription_devices (
   subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,

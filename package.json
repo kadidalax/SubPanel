@@ -10,7 +10,7 @@
     "build:web": "npm --prefix web run build",
     "deploy": "npm run build:web && wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply subpanel --local",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

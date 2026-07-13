@@ -37,8 +37,7 @@ export async function runJob(env: Env, body: JobMessage): Promise<void> {
     } else if (body.kind === "send_notification") {
       await sendNotification(env, body.notificationId);
     } else if (body.kind === "cleanup_logs") {
-      const envDays = Number(env.ACCESS_LOG_RETENTION_DAYS || 7);
-      let days = await getSettingNumber(env, "access_log_retention_days", Number.isFinite(envDays) ? envDays : 7);
+      let days = await getSettingNumber(env, "access_log_retention_days", 7);
       if (!Number.isFinite(days) || days < 1) days = 7;
       if (days > 90) days = 90;
       const cutoff = nowMs() - days * 24 * 3600 * 1000;
