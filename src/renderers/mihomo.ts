@@ -1,6 +1,29 @@
 import YAML from "yaml";
 import type { NormalizedNode } from "../parsers/types.ts";
 
+function firstNonEmpty(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+/** Clash Meta reality-opts uses kebab-case; internal nodes use camelCase. */
+function toMihomoRealityOpts(reality: unknown): Record<string, unknown> | null | undefined {
+  if (reality == null || reality === false) return undefined;
+  if (typeof reality !== "object") return null;
+  const r = reality as Record<string, unknown>;
+  const publicKey = firstNonEmpty(r["public-key"], r.public_key, r.publicKey, r.pbk);
+  if (!publicKey) return null;
+  const opts: Record<string, unknown> = { "public-key": publicKey };
+  const shortId = firstNonEmpty(r["short-id"], r.short_id, r.shortId, r.sid);
+  if (shortId) opts["short-id"] = shortId;
+  if (r["support-x25519mlkem768"] != null) opts["support-x25519mlkem768"] = r["support-x25519mlkem768"];
+  return opts;
+}
+
 function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
   if (!node.capability.includes("mihomo")) return null;
   const base: Record<string, unknown> = {
@@ -34,15 +57,20 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
       }
       return proxy;
     }
-    case "trojan":
+    case "trojan": {
+      const realityOpts = toMihomoRealityOpts(tls.reality);
+      if (tls.reality && realityOpts === null) return null;
       return {
         ...base,
         type: "trojan",
         password: auth.password,
         sni: tls.serverName,
+        "client-fingerprint": tls.fingerprint,
+        "reality-opts": realityOpts,
         "skip-cert-verify": Boolean(tls.allowInsecure || tls.insecure),
         "ca-str": (node.extras || {}).certificate || tls.certificate,
       };
+    }
     case "vmess":
       return {
         ...base,
@@ -55,22 +83,25 @@ function toMihomoProxy(node: NormalizedNode): Record<string, unknown> | null {
         network: transport.type || "tcp",
         "ws-opts": transport.type === "ws" ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined } : undefined,
       };
-    case "vless":
+    case "vless": {
+      const realityOpts = toMihomoRealityOpts(tls.reality);
+      if (tls.reality && realityOpts === null) return null;
       return {
         ...base,
         type: "vless",
         uuid: auth.uuid,
         flow: auth.flow,
-        tls: Boolean(tls.enabled),
+        tls: Boolean(tls.enabled || realityOpts),
         servername: tls.serverName,
         network: transport.type || "tcp",
         "client-fingerprint": tls.fingerprint,
-        "reality-opts": tls.reality,
+        "reality-opts": realityOpts,
         "skip-cert-verify": Boolean(tls.insecure || tls.allowInsecure),
         "ca-str": (node.extras || {}).certificate || tls.certificate,
         "ws-opts": transport.type === "ws" ? { path: transport.path, headers: transport.host ? { Host: transport.host } : undefined } : undefined,
         "grpc-opts": transport.type === "grpc" ? { "grpc-service-name": transport.serviceName } : undefined,
       };
+    }
     case "hysteria2":
       return {
         ...base,
@@ -147,7 +178,8 @@ export function renderMihomo(nodes: NormalizedNode[], profileTitle = "Sub Panel"
   for (const node of nodes) {
     const proxy = toMihomoProxy(node);
     if (!proxy) {
-      skipped.push({ name: node.name, reason: "mihomo_unsupported" });
+      const reason = node.tls?.reality ? "mihomo_reality_missing_public_key" : "mihomo_unsupported";
+      skipped.push({ name: node.name, reason });
       continue;
     }
     proxies.push(proxy);

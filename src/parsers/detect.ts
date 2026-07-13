@@ -9,6 +9,34 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function firstNonEmpty(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+function normalizeReality(reality: unknown): Record<string, unknown> | undefined {
+  if (!reality || typeof reality !== "object") return undefined;
+  const r = reality as Record<string, unknown>;
+  const publicKey = firstNonEmpty(r["public-key"], r.public_key, r.publicKey, r.pbk);
+  const shortId = firstNonEmpty(r["short-id"], r.short_id, r.shortId, r.sid);
+  if (!publicKey && !shortId && r.enabled == null) return r as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (publicKey) out.publicKey = publicKey;
+  if (shortId) out.shortId = shortId;
+  if (r.enabled != null) out.enabled = r.enabled;
+  if (r["support-x25519mlkem768"] != null) out["support-x25519mlkem768"] = r["support-x25519mlkem768"];
+  // preserve unknown keys lightly
+  for (const [k, v] of Object.entries(r)) {
+    if (["public-key", "public_key", "publicKey", "pbk", "short-id", "short_id", "shortId", "sid", "enabled", "support-x25519mlkem768"].includes(k)) continue;
+    if (!(k in out)) out[k] = v;
+  }
+  return out;
+}
+
 function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): NormalizedNode | null {
   const type = String(proxy.type || "").toLowerCase();
   const name = String(proxy.name || type);
@@ -57,7 +85,7 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
           serverName: proxy.sni || proxy.servername || proxy.peer,
           allowInsecure: proxy["skip-cert-verify"],
           fingerprint: proxy["client-fingerprint"],
-          reality: proxy["reality-opts"],
+          reality: normalizeReality(proxy["reality-opts"]),
           certificate: proxy["ca-str"] || proxy.certificate || proxy.cert,
         }
       : undefined,
@@ -132,7 +160,7 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
           serverName: tls.server_name,
           allowInsecure: tls.insecure,
           alpn: tls.alpn,
-          reality: tls.reality,
+          reality: normalizeReality(tls.reality),
           utls: tls.utls,
           certificate: Array.isArray(tls.certificate) ? tls.certificate[0] : tls.certificate,
         }
