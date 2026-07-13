@@ -134,15 +134,24 @@ function toSingboxOutbound(node: NormalizedNode): Record<string, unknown> | Reco
         transport,
       };
     case "vless":
-      return { ...base, type: "vless", uuid: auth.uuid, flow: auth.flow, tls, transport };
+      return { ...base, type: "vless", uuid: auth.uuid, flow: auth.flow || extras.flow, tls, transport };
     case "hysteria2": {
       const ports = hopPorts((extras || {}) as Record<string, unknown>);
       const obfsType = (extras as any).obfs ? String((extras as any).obfs) : "";
+      const hy2Tls = tls
+        ? {
+            ...tls,
+            alpn:
+              Array.isArray((tls as any).alpn) && (tls as any).alpn.length
+                ? (tls as any).alpn
+                : ["h3"],
+          }
+        : tls;
       return {
         ...base,
         type: "hysteria2",
         password: auth.password,
-        tls,
+        tls: hy2Tls,
         ...(ports ? { server_ports: ports } : {}),
         ...(obfsType
           ? {

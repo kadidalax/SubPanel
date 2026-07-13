@@ -64,6 +64,25 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
   const protocol = map[type];
   if (!protocol) return null;
 
+  const cert = proxy["ca-str"] || proxy.certificate || proxy.cert;
+  // mihomo: fingerprint = cert pin (DER sha256); client-fingerprint = uTLS profile
+  const certPin = firstNonEmpty(proxy.fingerprint, proxy.pinSHA256, proxy.pinSha256);
+  const clientFp = firstNonEmpty(proxy["client-fingerprint"], proxy.clientFingerprint);
+  const hasTls = Boolean(
+    proxy.tls ||
+      proxy.sni ||
+      proxy.servername ||
+      proxy["skip-cert-verify"] != null ||
+      proxy["reality-opts"] ||
+      cert ||
+      certPin ||
+      clientFp ||
+      protocol === "trojan" ||
+      protocol === "hysteria2" ||
+      protocol === "hysteria" ||
+      protocol === "tuic" ||
+      protocol === "anytls",
+  );
   const partial = {
     protocol,
     name,
@@ -75,18 +94,38 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
       password: proxy.password || proxy.auth || proxy["auth-str"],
       method: proxy.cipher || proxy.method,
       username: proxy.username,
+      flow: proxy.flow,
       privateKey: proxy["private-key"] || proxy.private_key || proxy.privateKey,
-      publicKey: proxy["public-key"] || proxy.public_key || proxy.publicKey || ((proxy.peers as any)?.[0]?.["public-key"]),
-      preSharedKey: proxy["pre-shared-key"] || proxy.preshared_key || ((proxy.peers as any)?.[0]?.["pre-shared-key"]),
+      publicKey:
+        proxy["public-key"] ||
+        proxy.public_key ||
+        proxy.publicKey ||
+        ((proxy.peers as any)?.[0]?.["public-key"]),
+      preSharedKey:
+        proxy["pre-shared-key"] ||
+        proxy.preshared_key ||
+        ((proxy.peers as any)?.[0]?.["pre-shared-key"]),
     },
-    tls: proxy.tls || proxy.sni || proxy["skip-cert-verify"] || proxy["reality-opts"] || proxy["ca-str"] || proxy.certificate
+    tls: hasTls
       ? {
-          enabled: Boolean(proxy.tls || proxy["reality-opts"] || proxy["ca-str"] || protocol === "trojan" || protocol === "hysteria2" || protocol === "hysteria" || protocol === "tuic"),
+          enabled: Boolean(
+            proxy.tls ||
+              proxy["reality-opts"] ||
+              cert ||
+              certPin ||
+              protocol === "trojan" ||
+              protocol === "hysteria2" ||
+              protocol === "hysteria" ||
+              protocol === "tuic" ||
+              protocol === "anytls",
+          ),
           serverName: proxy.sni || proxy.servername || proxy.peer,
           allowInsecure: proxy["skip-cert-verify"],
-          fingerprint: proxy["client-fingerprint"],
+          insecure: proxy["skip-cert-verify"],
+          fingerprint: clientFp,
+          alpn: proxy.alpn,
           reality: normalizeReality(proxy["reality-opts"]),
-          certificate: proxy["ca-str"] || proxy.certificate || proxy.cert,
+          certificate: cert,
         }
       : undefined,
     transport: {
@@ -96,12 +135,13 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
       serviceName: (proxy["grpc-opts"] as any)?.["grpc-service-name"],
     },
     extras: {
-      flow: proxy.flow,
       udp: proxy.udp,
       up: proxy.up,
       down: proxy.down,
       obfs: proxy.obfs,
-      ports: proxy.ports,
+      obfsPassword: proxy["obfs-password"] || proxy.obfsPassword,
+      ports: proxy.ports || proxy.mport,
+      mport: proxy.ports || proxy.mport,
       ip: proxy.ip,
       ipv6: proxy.ipv6,
       mtu: proxy.mtu,
@@ -109,7 +149,9 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
       allowedIPs: proxy["allowed-ips"] || ((proxy.peers as any)?.[0]?.["allowed-ips"]),
       localAddress: proxy.ip,
       auth: proxy.auth || proxy["auth-str"],
-      certificate: proxy["ca-str"] || proxy.certificate || proxy.cert,
+      certificate: cert,
+      pinSHA256: certPin,
+      congestionControl: proxy["congestion-controller"] || proxy.congestion_control,
     },
   } as Omit<NormalizedNode, "capability">;
   return { ...partial, capability: capabilitiesFor(partial) };
@@ -139,6 +181,15 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
   if (!protocol) return null;
   const tls = asRecord(ob.tls) || undefined;
   const transport = asRecord(ob.transport) || undefined;
+  const utls = asRecord(tls?.utls);
+  const clientFp = firstNonEmpty(utls?.fingerprint, tls?.fingerprint);
+  const cert = tls
+    ? Array.isArray(tls.certificate)
+      ? tls.certificate[0]
+      : tls.certificate
+    : undefined;
+  const ports = ob.server_ports || ob.server_port_ranges || ob.ports;
+  const obfsObj = asRecord(ob.obfs);
   const partial = {
     protocol,
     name,
@@ -150,6 +201,7 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
       password: ob.password || ob.auth || ob.auth_str,
       method: ob.method,
       username: ob.username,
+      flow: ob.flow,
       privateKey: ob.private_key || ob.privateKey,
       publicKey: ob.peer_public_key || ob.public_key,
       preSharedKey: ob.pre_shared_key,
@@ -159,10 +211,12 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
           enabled: true,
           serverName: tls.server_name,
           allowInsecure: tls.insecure,
+          insecure: tls.insecure,
           alpn: tls.alpn,
+          fingerprint: clientFp,
           reality: normalizeReality(tls.reality),
           utls: tls.utls,
-          certificate: Array.isArray(tls.certificate) ? tls.certificate[0] : tls.certificate,
+          certificate: cert,
         }
       : undefined,
     transport: transport
@@ -174,15 +228,27 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
         }
       : undefined,
     extras: {
-      flow: ob.flow,
       up: ob.up_mbps || ob.up,
       down: ob.down_mbps || ob.down,
-      obfs: typeof ob.obfs === "object" ? (ob.obfs as any)?.type || (ob.obfs as any)?.password : ob.obfs,
+      obfs: obfsObj ? obfsObj.type : ob.obfs,
+      obfsPassword: obfsObj ? obfsObj.password : undefined,
+      ports: Array.isArray(ports)
+        ? ports.map((x) => String(x).replace(/:/g, "-")).join(",")
+        : ports != null
+          ? String(ports).replace(/:/g, "-")
+          : undefined,
+      mport: Array.isArray(ports)
+        ? ports.map((x) => String(x).replace(/:/g, "-")).join(",")
+        : ports != null
+          ? String(ports).replace(/:/g, "-")
+          : undefined,
       localAddress: ob.local_address,
       mtu: ob.mtu,
       reserved: ob.reserved,
       allowedIPs: Array.isArray(ob.peers) && ob.peers[0] ? (ob.peers[0] as any).allowed_ips : ob.allowed_ips,
       auth: ob.auth_str || ob.auth,
+      certificate: cert,
+      congestionControl: ob.congestion_control,
     },
   } as Omit<NormalizedNode, "capability">;
   return { ...partial, capability: capabilitiesFor(partial) };

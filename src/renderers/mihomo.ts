@@ -142,7 +142,7 @@ async function toMihomoProxy(node: NormalizedNode): Promise<Record<string, unkno
         ...base,
         type: "vless",
         uuid: auth.uuid,
-        flow: auth.flow,
+        flow: auth.flow || extras.flow,
         tls: Boolean(tls.enabled || realityOpts),
         servername: tls.serverName,
         network: transport.type || "tcp",

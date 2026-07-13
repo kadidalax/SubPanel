@@ -54,6 +54,20 @@ function applyCertToSearchParams(q: URLSearchParams, certInput: string): boolean
   return true;
 }
 
+function applyPinToSearchParams(q: URLSearchParams, node: NormalizedNode): boolean {
+  const pin = String(
+    (node.extras as any)?.pinSHA256 ||
+      (node.extras as any)?.pinSha256 ||
+      (node.tls as any)?.certificateFingerprint ||
+      "",
+  ).trim();
+  if (!pin) return false;
+  // Common share-link aliases; clients that ignore unknown params stay fine.
+  q.set("pinSHA256", pin);
+  q.set("pinSHA256Cert", pin);
+  return true;
+}
+
 function insecureFlag(node: NormalizedNode): boolean {
   return Boolean(node.tls?.insecure || node.tls?.allowInsecure);
 }
@@ -125,6 +139,7 @@ function rebuildUri(
       const ports = String(node.extras?.ports || node.extras?.mport || "");
       if (ports) q.set("mport", ports);
       if (hasCert) applyCertToSearchParams(q, certInput);
+      else applyPinToSearchParams(q, node);
       if (node.extras?.obfs) q.set("obfs", String(node.extras.obfs));
       if (node.extras?.obfsPassword) q.set("obfs-password", String(node.extras.obfsPassword));
       line =
@@ -147,6 +162,7 @@ function rebuildUri(
       if (node.tls?.fingerprint) q.set("fp", String(node.tls.fingerprint));
       if (insecureFlag(node)) q.set("insecure", "1");
       if (hasCert) applyCertToSearchParams(q, certInput);
+      else applyPinToSearchParams(q, node);
       line =
         "anytls://" +
         encodeURIComponent(password) +
@@ -196,6 +212,7 @@ function rebuildUri(
       if (node.tls?.serverName) q.set("sni", String(node.tls.serverName));
       if (node.extras?.congestionControl) q.set("congestion_control", String(node.extras.congestionControl));
       if (hasCert) applyCertToSearchParams(q, certInput);
+      else applyPinToSearchParams(q, node);
       if (insecureFlag(node)) q.set("allowInsecure", "1");
       line =
         "tuic://" +
@@ -218,6 +235,7 @@ function rebuildUri(
       if (node.tls?.serverName) q.set("sni", String(node.tls.serverName));
       if (insecureFlag(node)) q.set("allowInsecure", "1");
       if (hasCert) applyCertToSearchParams(q, certInput);
+      else applyPinToSearchParams(q, node);
       line =
         "trojan://" +
         encodeURIComponent(password) +
@@ -236,7 +254,8 @@ function rebuildUri(
       const q = new URLSearchParams();
       const encryption = String((node.extras as any)?.encryption || "none");
       q.set("encryption", encryption);
-      if (node.auth?.flow) q.set("flow", String(node.auth.flow));
+      const flow = node.auth?.flow ?? (node.extras as any)?.flow;
+      if (flow) q.set("flow", String(flow));
       const security = String((node.tls as any)?.security || (node.tls?.reality ? "reality" : node.tls?.enabled ? "tls" : "none"));
       if (security) q.set("security", security);
       if (node.tls?.serverName) q.set("sni", String(node.tls.serverName));
@@ -254,6 +273,7 @@ function rebuildUri(
       if (insecureFlag(node)) q.set("allowInsecure", "1");
       // Attach pinned cert when present (v2rayN can import; NekoBox hy2 still ignores cert on hy2 only).
       if (hasCert) applyCertToSearchParams(q, certInput);
+      else applyPinToSearchParams(q, node);
       line =
         "vless://" +
         encodeURIComponent(uuid) +
@@ -265,6 +285,21 @@ function rebuildUri(
         q.toString() +
         "#" +
         encodeURIComponent(node.name || "vless");
+    }
+  } else if (node.protocol === "ss" || node.protocol === "ss2022") {
+    const method = String(node.auth?.method || "");
+    const password = String(node.auth?.password || "");
+    if (method && password && node.server && node.port) {
+      const userinfo = btoa(method + ":" + password).replace(/=+$/, "");
+      line =
+        "ss://" +
+        userinfo +
+        "@" +
+        node.server +
+        ":" +
+        node.port +
+        "#" +
+        encodeURIComponent(node.name || "ss");
     }
   } else if (raw.includes("://") && !raw.startsWith("{") && !raw.toLowerCase().startsWith("v2rayn://")) {
     // Prefer rebuilding when we have cert but raw share-link does not carry it.

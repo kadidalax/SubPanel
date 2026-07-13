@@ -27,13 +27,27 @@ function b64decode(text: string): string {
 }
 
 function pickCert(q: Record<string, string | undefined>, data?: Record<string, unknown>): string | undefined {
-  const keys = ["cert", "certificate", "ca", "ca-str", "ca_str", "pinSHA256", "pinSHA256Cert"];
+  const keys = ["cert", "certificate", "ca", "ca-str", "ca_str"];
   for (const k of keys) {
     const v = q[k] ?? (data ? data[k] ?? data[k.replace(/-/g, "")] : undefined);
     if (v != null && String(v).trim()) return decodeMaybe(String(v));
   }
   if (data?.Cert != null) return String(data.Cert);
   if (data?.Certificate != null) return String(data.Certificate);
+  return undefined;
+}
+
+function extractPin(q: Record<string, string>, data?: Record<string, unknown>): string | undefined {
+  const keys = ["pinSHA256", "pinSHA256Cert", "pinSha256", "fingerprint"];
+  for (const k of keys) {
+    const v = q[k] ?? (data ? data[k] : undefined);
+    if (v != null && String(v).trim()) {
+      const s = String(v).trim();
+      // share-link fingerprint may be cert pin; ignore pure uTLS profile names
+      if (["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random"].includes(s.toLowerCase())) continue;
+      return s;
+    }
+  }
   return undefined;
 }
 
@@ -133,6 +147,7 @@ export function parseV2raynUri(raw: string): NormalizedNode | null {
         : undefined;
 
     if (kind === "hysteria2" || kind === "hy2") {
+      const pin = extractPin({}, data);
       return baseNode("hysteria2", name, server, port, raw, {
         auth: { password },
         tls: { enabled: true, serverName: sni, insecure, certificate: cert },
@@ -143,6 +158,7 @@ export function parseV2raynUri(raw: string): NormalizedNode | null {
           downMbps: extra.DownMbps || extra.down,
           hopInterval: extra.HopInterval || extra.hopInterval,
           certificate: cert,
+          pinSHA256: pin,
         },
       });
     }
@@ -265,6 +281,7 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
   if (protocol === "vless") {
     if (!server || !port) return null;
     const cert = pickCert(q);
+    const pin = extractPin(q);
     return baseNode("vless", name, server, port, raw, {
       auth: { uuid: decodeMaybe(url.username), flow: q.flow },
       tls: q.security
@@ -287,13 +304,14 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
         host: q.host,
         serviceName: q.serviceName,
       },
-      extras: { encryption: q.encryption || "none", certificate: cert },
+      extras: { encryption: q.encryption || "none", certificate: cert, pinSHA256: pin },
     });
   }
 
   if (protocol === "trojan") {
     if (!server || !port) return null;
     const cert = pickCert(q);
+    const pin = extractPin(q);
     return baseNode("trojan", name, server, port, raw, {
       auth: { password: decodeMaybe(url.username) },
       tls: {
@@ -304,7 +322,10 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
         certificate: cert,
       },
       transport: { type: q.type || "tcp", path: q.path, host: q.host },
-      extras: cert ? { certificate: cert } : undefined,
+      extras: {
+        ...(cert ? { certificate: cert } : {}),
+        ...(pin ? { pinSHA256: pin } : {}),
+      },
     });
   }
 
@@ -388,6 +409,7 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
   }
   if (protocol === "hysteria2" || protocol === "hy2") {
     const cert = pickCert(q);
+    const pin = extractPin(q);
     return baseNode("hysteria2", name, server, port, raw, {
       auth: { password: decodeMaybe(url.username) || q.auth },
       tls: {
@@ -406,6 +428,7 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
         mport: q.mport || q.ports,
         ports: q.ports || q.mport,
         certificate: cert,
+        pinSHA256: pin,
       },
     });
   }
