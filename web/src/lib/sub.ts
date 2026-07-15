@@ -5,14 +5,16 @@ export type ClientLink = {
   title: string;
   format: "auto" | "mihomo" | "singbox" | "uri" | "uri-base64" | "surge";
   hint: string;
+  vendor?: string;
 };
 
 export const CLIENT_LINKS: ClientLink[] = [
   { id: "auto", title: "通用自动", format: "auto", hint: "按客户端 UA 自动识别" },
   { id: "flclash", title: "FlClash / Mihomo", format: "mihomo", hint: "Clash Meta 系" },
   { id: "karing", title: "Karing / sing-box", format: "singbox", hint: "sing-box JSON" },
-  { id: "nekobox", title: "NekoBox / v2rayN", format: "uri", hint: "标准 URI 列表" },
-  { id: "v2rayn_b64", title: "v2rayN (Base64)", format: "uri-base64", hint: "URI 列表 Base64" },
+  { id: "nekobox", title: "NekoBox", format: "uri", hint: "标准 URI 列表" },
+  { id: "v2rayn", title: "v2rayN", format: "uri", hint: "保留 v2rayn:// 与证书", vendor: "v2rayn" },
+  { id: "v2rayn_b64", title: "v2rayN (Base64)", format: "uri-base64", hint: "URI 列表 Base64", vendor: "v2rayn" },
   { id: "surge", title: "Surge", format: "surge", hint: "常见协议子集" },
 ];
 
@@ -36,10 +38,17 @@ export function loadSubToken(id: number | string): string | null {
   }
 }
 
-export function buildSubUrl(token: string, format: ClientLink["format"] = "auto") {
+export function buildSubUrl(
+  token: string,
+  format: ClientLink["format"] = "auto",
+  extra: Record<string, string> = {},
+) {
   const base = `${window.location.origin}/sub/${token}`;
-  if (!format || format === "auto") return base;
-  return `${base}?format=${format}`;
+  const q = new URLSearchParams();
+  if (format && format !== "auto") q.set("format", format);
+  for (const [k, v] of Object.entries(extra)) if (v) q.set(k, v);
+  const qs = q.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 export async function copyText(text: string) {

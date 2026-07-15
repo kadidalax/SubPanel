@@ -134,13 +134,13 @@ export function MePage() {
     }
   }
 
-  async function copyFormat(id: number, format: any, title: string) {
+  async function copyFormat(id: number, format: any, title: string, vendor?: string) {
     const token = await ensureToken(id);
     if (!token) {
       setError("该订阅暂无可用链接，请先轮换一次以生成可复用链接");
       return;
     }
-    await showCopied(buildSubUrl(token, format), title);
+    await showCopied(buildSubUrl(token, format, vendor ? { vendor } : {}), title);
   }
 
   function goNodes(id: number) {
@@ -230,7 +230,7 @@ export function MePage() {
                   <button
                     key={c.id}
                     className={"btn sm" + (c.id === "auto" ? "" : " secondary")}
-                    onClick={() => copyFormat(r.id, c.format, c.title)}
+                    onClick={() => copyFormat(r.id, c.format, c.title, c.vendor)}
                   >
                     复制 {c.title}
                   </button>

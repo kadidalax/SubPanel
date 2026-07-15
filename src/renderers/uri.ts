@@ -74,8 +74,8 @@ function insecureFlag(node: NormalizedNode): boolean {
 
 /**
  * Prefer standard share links for broad client compatibility (NekoBox, v2rayNG, etc.).
- * v2rayn:// private wrappers are only kept when preferRawV2rayn=true, or as single-node
- * fallback when a node has a cert we failed to attach to a standard link.
+ * Keep v2rayn:// when preferRawV2rayn=true, or when the node carries a cert (standard
+ * cert query params are long/fragile and some clients drop the whole line).
  */
 function rebuildUri(
   node: NormalizedNode,
@@ -85,8 +85,14 @@ function rebuildUri(
   const certInput = nodeCertRaw(node);
   const hasCert = certInput.length > 0;
 
-  if (preferRawV2rayn && raw.toLowerCase().startsWith("v2rayn://")) {
-    return { line: raw, usedV2raynFallback: false, exportedCert: hasCert };
+  // Cert-bearing v2rayn wrappers: keep raw. Standard hy2/vless cert query params are
+  // long and poorly supported — clients often drop the whole line (only short vless remains).
+  if (raw.toLowerCase().startsWith("v2rayn://") && (preferRawV2rayn || hasCert)) {
+    return {
+      line: raw,
+      usedV2raynFallback: !preferRawV2rayn && hasCert,
+      exportedCert: hasCert,
+    };
   }
 
   // Already-standard share link: keep only if cert requirement already satisfied.

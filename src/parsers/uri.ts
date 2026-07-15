@@ -444,13 +444,30 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
   return null;
 }
 
+/** Rejoin soft-wrapped share links (long v2rayn/vmess base64 payloads). */
+function coalesceUriLines(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    const prev = out[out.length - 1];
+    const frag = !line.includes("://") && /^[A-Za-z0-9+/=_-]+$/.test(line);
+    if (prev && frag && /^(v2rayn|vmess):\/\//i.test(prev)) {
+      out[out.length - 1] = prev + line;
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 export function parseUriList(text: string): { nodes: NormalizedNode[]; warnings: ParseWarning[] } {
   const nodes: NormalizedNode[] = [];
   const warnings: ParseWarning[] = [];
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const lines = coalesceUriLines(
+    text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean),
+  );
   for (const line of lines) {
     if (line.startsWith("#") || /^-{5,}$/.test(line) || /^[-=*]{5,}$/.test(line) || /^\*{5,}/.test(line)) continue;
     const node = parseGenericUri(line);

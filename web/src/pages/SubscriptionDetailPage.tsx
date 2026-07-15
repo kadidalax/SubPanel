@@ -54,7 +54,10 @@ export function SubscriptionDetailPage() {
 
   const links = useMemo(() => {
     if (!token) return [];
-    return CLIENT_LINKS.map((c) => ({ ...c, url: buildSubUrl(token, c.format) }));
+    return CLIENT_LINKS.map((c) => ({
+      ...c,
+      url: buildSubUrl(token, c.format, c.vendor ? { vendor: c.vendor } : {}),
+    }));
   }, [token]);
 
   async function showCopied(url: string, title: string, successMsg = `已复制：${title}`) {
