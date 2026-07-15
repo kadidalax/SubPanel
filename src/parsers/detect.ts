@@ -152,6 +152,12 @@ function fromMihomoProxy(proxy: Record<string, unknown>, raw: string): Normalize
       certificate: cert,
       pinSHA256: certPin,
       congestionControl: proxy["congestion-controller"] || proxy.congestion_control,
+      hopInterval: proxy["hop-interval"] ?? proxy.hop_interval ?? proxy.hopInterval,
+      earlyData:
+        (proxy["ws-opts"] as any)?.["max-early-data"] ?? (proxy["ws-opts"] as any)?.max_early_data,
+      earlyDataHeaderName:
+        (proxy["ws-opts"] as any)?.["early-data-header-name"] ??
+        (proxy["ws-opts"] as any)?.early_data_header_name,
     },
   } as Omit<NormalizedNode, "capability">;
   return { ...partial, capability: capabilitiesFor(partial) };
@@ -249,9 +255,73 @@ function fromSingboxOutbound(ob: Record<string, unknown>, raw: string): Normaliz
       auth: ob.auth_str || ob.auth,
       certificate: cert,
       congestionControl: ob.congestion_control,
+      hopInterval: ob.hop_interval ?? ob.hopInterval,
+      pinSHA256: (() => {
+        const pk = tls?.certificate_public_key_sha256 ?? tls?.certificatePublicKeySha256;
+        if (Array.isArray(pk) && pk[0]) return String(pk[0]);
+        if (pk != null && String(pk).trim()) return String(pk);
+        return undefined;
+      })(),
+      earlyData: transport?.max_early_data,
+      earlyDataHeaderName: transport?.early_data_header_name,
     },
   } as Omit<NormalizedNode, "capability">;
   return { ...partial, capability: capabilitiesFor(partial) };
+}
+
+
+function extractBalancedJson(text: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "{" && text[i] !== "[") continue;
+    const open = text[i];
+    const close = open === "{" ? "}" : "]";
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') {
+        inStr = true;
+        continue;
+      }
+      if (c === open) depth++;
+      else if (c === close) {
+        depth--;
+        if (depth === 0) {
+          out.push(text.slice(i, j + 1));
+          i = j;
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function tryParseClashProxyLines(block: string): NormalizedNode[] {
+  const nodes: NormalizedNode[] = [];
+  for (const rawLine of block.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("-")) line = line.replace(/^-\s*/, "");
+    if (!line.startsWith("{") || !/\btype\s*:/.test(line)) continue;
+    try {
+      const proxy = YAML.parse(line) as Record<string, unknown>;
+      if (!proxy || typeof proxy !== "object" || !proxy.type) continue;
+      const node = fromMihomoProxy(proxy, line);
+      if (node) nodes.push(node);
+    } catch {
+      /* ignore */
+    }
+  }
+  return nodes;
 }
 
 function splitMixedBlocks(text: string): string[] {
@@ -266,9 +336,22 @@ function parseBlock(text: string, warnings: ParseWarning[]): { nodes: Normalized
   const block = text.trim();
   if (!block) return { nodes: [], detectedFormat: "empty" };
 
-  if (block.startsWith("{") || block.startsWith("[")) {
+  // Clash bare proxy lines: "- {name, type, server, ...}"
+  if (!block.includes("proxies:") && !block.includes("proxy-groups:") && !block.includes("outbounds")) {
+    const flow = tryParseClashProxyLines(block);
+    if (flow.length) return { nodes: flow, detectedFormat: "mihomo" };
+  }
+
+  const jsonText = (() => {
+    if (block.startsWith("{") || block.startsWith("[")) {
+      return extractBalancedJson(block)[0] || block;
+    }
+    return extractBalancedJson(block).find((j) => j.includes("outbounds")) || "";
+  })();
+
+  if (jsonText.startsWith("{") || jsonText.startsWith("[")) {
     try {
-      const data = JSON.parse(block) as any;
+      const data = JSON.parse(jsonText) as any;
       if (Array.isArray(data) && data[0]?.server && data[0]?.method) {
         const nodes: NormalizedNode[] = [];
         for (const item of data) {
@@ -382,6 +465,43 @@ function parseBlock(text: string, warnings: ParseWarning[]): { nodes: Normalized
   return { nodes: [], detectedFormat: "unknown" };
 }
 
+
+function harvestMixed(text: string, warnings: ParseWarning[]): ParseResult {
+  const nodes: NormalizedNode[] = [];
+  const formats = new Set<string>();
+
+  const uri = parseUriList(text);
+  if (uri.nodes.length) {
+    nodes.push(...uri.nodes);
+    formats.add("uri-list");
+  }
+  warnings.push(...uri.warnings.filter((w) => w.code !== "uri_unparsed" || (w.raw || "").includes("://")));
+
+  const clash = tryParseClashProxyLines(text);
+  if (clash.length) {
+    nodes.push(...clash);
+    formats.add("mihomo");
+  }
+
+  for (const json of extractBalancedJson(text)) {
+    if (!json.includes("outbounds") && !json.includes('"type"')) continue;
+    const parsed = parseBlock(json, warnings);
+    if (parsed.nodes.length) {
+      nodes.push(...parsed.nodes);
+      formats.add(parsed.detectedFormat);
+    }
+  }
+
+  if (!nodes.length) {
+    return { nodes: [], warnings, detectedFormat: "unknown" };
+  }
+  return {
+    nodes,
+    warnings,
+    detectedFormat: formats.size === 1 ? [...formats][0] : "mixed",
+  };
+}
+
 export function parseSubscriptionText(input: string, formatHint?: string | null): ParseResult {
   let text = input.trim();
   const warnings: ParseWarning[] = [];
@@ -400,6 +520,13 @@ export function parseSubscriptionText(input: string, formatHint?: string | null)
       nodes.push(...parsed.nodes);
       if (parsed.nodes.length) formats.add(parsed.detectedFormat);
     }
+    const extra = harvestMixed(text, warnings);
+    for (const n of extra.nodes) {
+      const key = n.protocol + "|" + n.server + "|" + n.port + "|" + n.name;
+      if (nodes.some((x) => x.protocol + "|" + x.server + "|" + x.port + "|" + x.name === key)) continue;
+      nodes.push(n);
+    }
+    if (extra.detectedFormat && extra.detectedFormat !== "unknown") formats.add(extra.detectedFormat);
     if (nodes.length) {
       return {
         nodes,
@@ -425,6 +552,15 @@ export function parseSubscriptionText(input: string, formatHint?: string | null)
 
   const uri = parseUriList(text);
   if (uri.nodes.length) {
+    const looksMixed =
+      text.includes("outbounds") ||
+      /^-\s*\{/m.test(text) ||
+      text.includes("type: hysteria2") ||
+      text.includes("type: vless");
+    if (looksMixed) {
+      const mixed = harvestMixed(text, warnings);
+      if (mixed.nodes.length > uri.nodes.length) return mixed;
+    }
     return {
       nodes: uri.nodes,
       warnings: [...warnings, ...uri.warnings],
@@ -440,6 +576,9 @@ export function parseSubscriptionText(input: string, formatHint?: string | null)
     for (const block of blocks) nodes.push(...parseBlock(block, warnings).nodes);
     if (nodes.length) return { nodes, warnings, detectedFormat: "mixed" };
   }
+
+  const harvested = harvestMixed(text, warnings);
+  if (harvested.nodes.length) return harvested;
 
   return {
     nodes: [],

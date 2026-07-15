@@ -26,19 +26,38 @@ function b64decode(text: string): string {
   }
 }
 
+function normalizePemLike(input: string): string {
+  let s = decodeMaybe(input).trim();
+  if (!s) return s;
+  // Throne etc.: PEM lines joined by commas
+  if (/BEGIN CERTIFICATE/i.test(s) && s.includes(",")) {
+    s = s.replace(/,/g, "\n");
+  }
+  return s;
+}
+
 function pickCert(q: Record<string, string | undefined>, data?: Record<string, unknown>): string | undefined {
-  const keys = ["cert", "certificate", "ca", "ca-str", "ca_str"];
+  const keys = [
+    "cert",
+    "certificate",
+    "ca",
+    "ca-str",
+    "ca_str",
+    "tls_certificate",
+    "tls-certificate",
+    "tlsCertificate",
+  ];
   for (const k of keys) {
     const v = q[k] ?? (data ? data[k] ?? data[k.replace(/-/g, "")] : undefined);
-    if (v != null && String(v).trim()) return decodeMaybe(String(v));
+    if (v != null && String(v).trim()) return normalizePemLike(String(v));
   }
-  if (data?.Cert != null) return String(data.Cert);
-  if (data?.Certificate != null) return String(data.Certificate);
+  if (data?.Cert != null) return normalizePemLike(String(data.Cert));
+  if (data?.Certificate != null) return normalizePemLike(String(data.Certificate));
   return undefined;
 }
 
 function extractPin(q: Record<string, string>, data?: Record<string, unknown>): string | undefined {
-  const keys = ["pinSHA256", "pinSHA256Cert", "pinSha256", "fingerprint"];
+  const keys = ["pinSHA256", "pinSHA256Cert", "pinSha256", "fingerprint", "hpkp", "publicKeySha256"];
   for (const k of keys) {
     const v = q[k] ?? (data ? data[k] : undefined);
     if (v != null && String(v).trim()) {
@@ -247,6 +266,24 @@ return null;
   }
 }
 
+
+/** Shadowrocket packs auto:uuid@host:port (or uuid@host:port) as base64 authority. */
+function decodeShadowrocketAuthority(token: string): { uuid: string; server: string; port: number } | null {
+  const decoded = b64decode(token.trim());
+  if (!decoded || !decoded.includes("@")) return null;
+  const m = decoded.match(/^(?:[^@]*:)?([^@]+)@([^:]+):(\d+)$/);
+  if (!m) return null;
+  const port = Number(m[3]);
+  if (!m[1] || !m[2] || !port) return null;
+  return { uuid: m[1], server: m[2], port };
+}
+
+function stripEarlyData(path: string): { path: string; earlyData?: string } {
+  const idx = path.indexOf("?ed=");
+  if (idx < 0) return { path };
+  return { path: path.slice(0, idx), earlyData: path.slice(idx + 4) };
+}
+
 export function parseGenericUri(rawLine: string): NormalizedNode | null {
   const raw = rawLine.trim();
   if (!raw || raw.startsWith("#")) return null;
@@ -279,32 +316,67 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
   const q = queryMap(url);
 
   if (protocol === "vless") {
-    if (!server || !port) return null;
+    let vServer = server;
+    let vPort = port;
+    let uuid = decodeMaybe(url.username);
+    // Shadowrocket: vless://base64(auto:uuid@host:port)?remarks=&obfs=websocket&tls=1&peer=&obfsParam=&path=
+    if ((!vPort || !uuid) && vServer) {
+      const sr = decodeShadowrocketAuthority(vServer);
+      if (sr) {
+        uuid = sr.uuid;
+        vServer = sr.server;
+        vPort = sr.port;
+      }
+    }
+    if (!uuid) {
+      const sr2 = decodeShadowrocketAuthority(decodeMaybe(url.username || ""));
+      if (sr2) {
+        uuid = sr2.uuid;
+        vServer = sr2.server;
+        vPort = sr2.port;
+      }
+    }
+    if (!vServer || !vPort || !uuid) return null;
     const cert = pickCert(q);
     const pin = extractPin(q);
-    return baseNode("vless", name, server, port, raw, {
-      auth: { uuid: decodeMaybe(url.username), flow: q.flow },
-      tls: q.security
-        ? {
-            enabled: q.security !== "none",
-            security: q.security,
-            serverName: q.sni,
-            fingerprint: q.fp,
-            alpn: q.alpn ? q.alpn.split(",") : undefined,
-            certificate: cert,
-            reality:
-              q.security === "reality"
-                ? { publicKey: q.pbk, shortId: q.sid, spiderX: q.spx }
-                : undefined,
-          }
-        : undefined,
+    const remarkName = name || decodeMaybe(q.remarks || q.remark || "");
+    const security = String(q.security || (q.tls === "1" || q.tls === "true" ? "tls" : q.sni || q.peer ? "tls" : "none"));
+    let tType = String(q.type || q.obfs || "tcp").toLowerCase();
+    if (tType === "websocket") tType = "ws";
+    const pathRaw = q.path || "";
+    const { path: wsPath, earlyData } = stripEarlyData(pathRaw);
+    const hostHeader = q.host || q.obfsParam;
+    const sni = q.sni || q.peer || hostHeader;
+    return baseNode("vless", remarkName, vServer, vPort, raw, {
+      auth: { uuid, flow: q.flow },
+      tls:
+        security && security !== "none"
+          ? {
+              enabled: true,
+              security,
+              serverName: sni,
+              fingerprint: q.fp,
+              alpn: q.alpn ? q.alpn.split(",") : undefined,
+              allowInsecure: q.allowInsecure === "1" || q.allowInsecure === "true",
+              reality:
+                security === "reality"
+                  ? { publicKey: q.pbk, shortId: q.sid, spiderX: q.spx }
+                  : undefined,
+              certificate: cert,
+            }
+          : undefined,
       transport: {
-        type: q.type || "tcp",
-        path: q.path,
-        host: q.host,
+        type: tType || "tcp",
+        path: wsPath || undefined,
+        host: hostHeader,
         serviceName: q.serviceName,
       },
-      extras: { encryption: q.encryption || "none", certificate: cert, pinSHA256: pin },
+      extras: {
+        encryption: q.encryption || "none",
+        certificate: cert,
+        pinSHA256: pin,
+        ...(earlyData ? { earlyData } : {}),
+      },
     });
   }
 
@@ -410,11 +482,13 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
   if (protocol === "hysteria2" || protocol === "hy2") {
     const cert = pickCert(q);
     const pin = extractPin(q);
+    const sni = q.sni || q.peer;
+    const obfs = q.obfs && q.obfs.toLowerCase() !== "none" ? q.obfs : undefined;
     return baseNode("hysteria2", name, server, port, raw, {
       auth: { password: decodeMaybe(url.username) || q.auth },
       tls: {
         enabled: true,
-        serverName: q.sni,
+        serverName: sni,
         insecure:
           q.insecure === "1" ||
           q.insecure === "true" ||
@@ -423,12 +497,15 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
         certificate: cert,
       },
       extras: {
-        obfs: q.obfs,
+        obfs,
         obfsPassword: q["obfs-password"] || q.obfsPassword,
         mport: q.mport || q.ports,
         ports: q.ports || q.mport,
         certificate: cert,
         pinSHA256: pin,
+        hopInterval: q.hop_interval || q.hopInterval || q.keepalive,
+        upMbps: q.upmbps || q.up,
+        downMbps: q.downmbps || q.down,
       },
     });
   }
@@ -469,7 +546,15 @@ export function parseUriList(text: string): { nodes: NormalizedNode[]; warnings:
       .filter(Boolean),
   );
   for (const line of lines) {
-    if (line.startsWith("#") || /^-{5,}$/.test(line) || /^[-=*]{5,}$/.test(line) || /^\*{5,}/.test(line)) continue;
+    if (
+      line.startsWith("#") ||
+      /^-{5,}$/.test(line) ||
+      /^[-=*]{5,}$/.test(line) ||
+      /^\*{5,}/.test(line) ||
+      /^[\u2500-\u257F\s]+$/.test(line) ||
+      /^(V2rayN|ShadowRocket|Shadowrocket|Clash\s*Verge|Clash|Throne|Sing-?box|Mihomo)\s*$/i.test(line)
+    )
+      continue;
     const node = parseGenericUri(line);
     if (!node) {
       warnings.push({ code: "uri_unparsed", message: "unable to parse uri", raw: line.slice(0, 200) });
