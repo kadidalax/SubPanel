@@ -12,6 +12,10 @@ export type SourceDiff = {
   updated: number;
   staleMarked: number;
   unchanged: number;
+  /** unique after node_key dedupe */
+  unique: number;
+  /** raw parse count before dedupe */
+  parsed: number;
 };
 
 async function bumpGroupsForSource(env: Env, sourceId: number, now: number): Promise<void> {
@@ -48,7 +52,7 @@ export async function createManualSource(
   )
     .bind(now, now, sourceId)
     .run();
-  return { id: sourceId, nodeCount: parsed.nodes.length, warnings: parsed.warnings, revision: 1, diff };
+  return { id: sourceId, nodeCount: diff.unique, warnings: parsed.warnings, revision: 1, diff };
 }
 
 export async function createRemoteSource(
@@ -189,7 +193,7 @@ async function upsertSourceNodes(
     staleMarked = Number(res.meta.changes || 0);
   }
 
-  return { added, updated, staleMarked, unchanged };
+  return { added, updated, staleMarked, unchanged, unique: seen.length, parsed: nodes.length };
 }
 
 export async function refreshSource(
@@ -210,11 +214,11 @@ export async function refreshSource(
       .bind(revision, now, now, sourceId)
       .run();
     await bumpGroupsForSource(env, sourceId, now);
-    return { nodeCount: parsed.nodes.length, warnings: parsed.warnings, revision, diff };
+    return { nodeCount: diff.unique, warnings: parsed.warnings, revision, diff };
   }
 
   if (source.kind === "passthrough") {
-    return { nodeCount: 1, warnings: [], revision: Number(source.revision || 1), diff: { added: 0, updated: 0, staleMarked: 0, unchanged: 1 } };
+    return { nodeCount: 1, warnings: [], revision: Number(source.revision || 1), diff: { added: 0, updated: 0, staleMarked: 0, unchanged: 1, unique: 1, parsed: 1 } };
   }
 
   if (source.kind !== "remote") throw new Error("unsupported source kind");
@@ -249,7 +253,7 @@ export async function refreshSource(
       .bind(revision, now, nextRefresh, now, sourceId)
       .run();
     await bumpGroupsForSource(env, sourceId, now);
-    return { nodeCount: parsed.nodes.length, warnings: parsed.warnings, revision, diff };
+    return { nodeCount: diff.unique, warnings: parsed.warnings, revision, diff };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const failureCount = Number(source.failure_count || 0) + 1;

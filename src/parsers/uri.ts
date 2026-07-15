@@ -525,9 +525,21 @@ export function parseGenericUri(rawLine: string): NormalizedNode | null {
 function coalesceUriLines(lines: string[]): string[] {
   const out: string[] = [];
   for (const line of lines) {
+    // Separators / pure punctuation must never join into share-link payloads
+    if (/^[-=*_.\s]{3,}$/.test(line) || /^[\u2500-\u257F\s]+$/.test(line)) {
+      out.push(line);
+      continue;
+    }
     const prev = out[out.length - 1];
-    const frag = !line.includes("://") && /^[A-Za-z0-9+/=_-]+$/.test(line);
-    if (prev && frag && /^(v2rayn|vmess):\/\//i.test(prev)) {
+    // Soft-wrapped base64 body only: has alnum, not pure dashes, no scheme
+    const frag =
+      !!prev &&
+      !line.includes("://") &&
+      line.length >= 16 &&
+      /^[A-Za-z0-9+/=_-]+$/.test(line) &&
+      /[A-Za-z0-9]/.test(line) &&
+      !/^[-_=*]+$/.test(line);
+    if (frag && /^(v2rayn|vmess):\/\//i.test(prev)) {
       out[out.length - 1] = prev + line;
       continue;
     }
@@ -551,13 +563,17 @@ export function parseUriList(text: string): { nodes: NormalizedNode[]; warnings:
       /^-{5,}$/.test(line) ||
       /^[-=*]{5,}$/.test(line) ||
       /^\*{5,}/.test(line) ||
-      /^[\u2500-\u257F\s]+$/.test(line) ||
+      /^[\u2500-\u257F\s│]+$/.test(line) ||
+      /[\u2500-\u257F]/.test(line) || // box-drawing titles like "│  V2rayN  │"
       /^(V2rayN|ShadowRocket|Shadowrocket|Clash\s*Verge|Clash|Throne|Sing-?box|Mihomo)\s*$/i.test(line)
     )
       continue;
     const node = parseGenericUri(line);
     if (!node) {
-      warnings.push({ code: "uri_unparsed", message: "unable to parse uri", raw: line.slice(0, 200) });
+      // Only warn for things that look like share links
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(line)) {
+        warnings.push({ code: "uri_unparsed", message: "unable to parse uri", raw: line.slice(0, 200) });
+      }
       continue;
     }
     nodes.push(node);

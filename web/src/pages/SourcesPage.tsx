@@ -101,7 +101,11 @@ export function SourcesPage() {
       } else {
         const res = await api.post<any>("/api/admin/sources/manual", { name, content });
         const d = res.diff || {};
-        setMsg("手工源 #" + res.id + " 已导入 " + res.nodeCount + " 节点（+" + (d.added ?? 0) + "）");
+        const dedupe =
+          d.parsed != null && d.unique != null && d.parsed > d.unique
+            ? "，去重 " + d.parsed + "→" + d.unique
+            : "";
+        setMsg("手工源 #" + res.id + " 已导入 " + res.nodeCount + " 节点（+" + (d.added ?? 0) + dedupe + "）");
       }
       setContent("");
       setPreview(null);
